@@ -1,0 +1,240 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ==========================================================================
+   NIYA ADMIN - DESIGN TOKENS
+   Neutral-first, warm-neutral greys, ONE accent (bronze/cognac, a nod to
+   leather goods). Borders over shadows. Dense by default: this is an
+   operator tool, not a marketing page.
+   ========================================================================== */
+
+:root {
+  --radius: 0.625rem;
+
+  /* Surfaces */
+  --background: oklch(0.9925 0.0015 90);
+  --foreground: oklch(0.205 0.004 75);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.205 0.004 75);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.205 0.004 75);
+
+  /* Actions */
+  --primary: oklch(0.235 0.006 75);
+  --primary-foreground: oklch(0.985 0.002 90);
+  --secondary: oklch(0.968 0.003 85);
+  --secondary-foreground: oklch(0.245 0.006 75);
+  --muted: oklch(0.968 0.003 85);
+  --muted-foreground: oklch(0.552 0.008 80);
+  --accent: oklch(0.958 0.004 85);
+  --accent-foreground: oklch(0.245 0.006 75);
+
+  /* The one brand accent - active nav, links, focus, primary chart series */
+  --brand: oklch(0.585 0.085 62);
+  --brand-foreground: oklch(0.985 0.002 90);
+  --brand-muted: oklch(0.955 0.018 75);
+
+  /* Semantic status - used by StatusBadge, alerts, KPI deltas */
+  --destructive: oklch(0.577 0.208 27.3);
+  --destructive-foreground: oklch(0.985 0 0);
+  --success: oklch(0.58 0.125 152);
+  --success-foreground: oklch(0.985 0 0);
+  --success-muted: oklch(0.955 0.03 152);
+  --warning: oklch(0.68 0.135 72);
+  --warning-foreground: oklch(0.21 0.02 72);
+  --warning-muted: oklch(0.96 0.045 82);
+  --info: oklch(0.58 0.11 245);
+  --info-foreground: oklch(0.985 0 0);
+  --info-muted: oklch(0.955 0.025 245);
+
+  /* Lines */
+  --border: oklch(0.918 0.004 85);
+  --input: oklch(0.918 0.004 85);
+  --ring: oklch(0.585 0.085 62);
+
+  /* Charts - restrained, distinguishable in both themes */
+  --chart-1: oklch(0.585 0.085 62);
+  --chart-2: oklch(0.56 0.09 235);
+  --chart-3: oklch(0.62 0.1 158);
+  --chart-4: oklch(0.7 0.13 82);
+  --chart-5: oklch(0.55 0.085 305);
+
+  /* Sidebar - a distinct, slightly recessed panel */
+  --sidebar: oklch(0.972 0.003 85);
+  --sidebar-foreground: oklch(0.245 0.006 75);
+  --sidebar-primary: oklch(0.235 0.006 75);
+  --sidebar-primary-foreground: oklch(0.985 0.002 90);
+  --sidebar-accent: oklch(0.936 0.005 85);
+  --sidebar-accent-foreground: oklch(0.225 0.006 75);
+  --sidebar-border: oklch(0.908 0.004 85);
+  --sidebar-ring: oklch(0.585 0.085 62);
+}
+
+.dark {
+  --background: oklch(0.168 0.004 75);
+  --foreground: oklch(0.955 0.003 85);
+  --card: oklch(0.208 0.005 75);
+  --card-foreground: oklch(0.955 0.003 85);
+  --popover: oklch(0.222 0.005 75);
+  --popover-foreground: oklch(0.955 0.003 85);
+
+  --primary: oklch(0.955 0.003 85);
+  --primary-foreground: oklch(0.208 0.005 75);
+  --secondary: oklch(0.272 0.006 75);
+  --secondary-foreground: oklch(0.955 0.003 85);
+  --muted: oklch(0.272 0.006 75);
+  --muted-foreground: oklch(0.715 0.008 80);
+  --accent: oklch(0.292 0.006 75);
+  --accent-foreground: oklch(0.955 0.003 85);
+
+  --brand: oklch(0.735 0.095 68);
+  --brand-foreground: oklch(0.19 0.01 68);
+  --brand-muted: oklch(0.3 0.035 68);
+
+  --destructive: oklch(0.665 0.19 24);
+  --destructive-foreground: oklch(0.145 0.01 24);
+  --success: oklch(0.7 0.13 155);
+  --success-foreground: oklch(0.16 0.02 155);
+  --success-muted: oklch(0.28 0.045 155);
+  --warning: oklch(0.79 0.13 78);
+  --warning-foreground: oklch(0.19 0.02 78);
+  --warning-muted: oklch(0.31 0.05 78);
+  --info: oklch(0.7 0.11 245);
+  --info-foreground: oklch(0.16 0.02 245);
+  --info-muted: oklch(0.29 0.04 245);
+
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.735 0.095 68);
+
+  --chart-1: oklch(0.735 0.095 68);
+  --chart-2: oklch(0.68 0.1 235);
+  --chart-3: oklch(0.72 0.11 158);
+  --chart-4: oklch(0.79 0.13 82);
+  --chart-5: oklch(0.68 0.095 305);
+
+  --sidebar: oklch(0.188 0.004 75);
+  --sidebar-foreground: oklch(0.94 0.003 85);
+  --sidebar-primary: oklch(0.955 0.003 85);
+  --sidebar-primary-foreground: oklch(0.208 0.005 75);
+  --sidebar-accent: oklch(0.275 0.006 75);
+  --sidebar-accent-foreground: oklch(0.955 0.003 85);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.735 0.095 68);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-muted: var(--brand-muted);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-muted: var(--success-muted);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-muted: var(--warning-muted);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-muted: var(--info-muted);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground text-sm antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* Numbers in tables and KPIs must never jitter between renders. */
+  .tabular,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Admin density: headings stay modest. This is not a landing page. */
+  h1 {
+    @apply text-lg font-semibold tracking-tight;
+  }
+  h2 {
+    @apply text-base font-semibold tracking-tight;
+  }
+  h3 {
+    @apply text-sm font-semibold tracking-tight;
+  }
+}
+
+@layer utilities {
+  /* A quiet scrollbar for dense panels. */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  /* Section shell: borders over shadows, per the design system. */
+  .surface {
+    @apply rounded-lg border bg-card;
+  }
+}
+
+/* Respect the motion preference everywhere, including sonner and radix. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

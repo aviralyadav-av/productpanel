@@ -1,0 +1,1420 @@
+[
+  {
+    "id": "handbag-001",
+    "slug": "classic-handbag",
+    "title": "Classic Handbag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "handbags",
+    "price": 2999,
+    "description": "A classic handbag designed for elegant everyday styling and practical carrying.",
+    "isOnSale": true,
+    "salePrice": 2499,
+    "discountPercentage": 17,
+    "orderCount": 184,
+    "rating": 4.7,
+    "reviewCount": 64,
+    "createdAt": "2026-08-10",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.34 PM.jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.34 PM.jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.34 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.35 PM.jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.35 PM.jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.35 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "handbag-002",
+    "slug": "elegant-handbag",
+    "title": "Elegant Handbag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "handbags",
+    "price": 3199,
+    "description": "An elegant handbag with a refined silhouette for everyday and occasion styling.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 143,
+    "rating": 4.5,
+    "reviewCount": 48,
+    "createdAt": "2026-08-07",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.36 PM (1).jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.36 PM (1).jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.36 PM (1).jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.36 PM (2).jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.36 PM (2).jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.36 PM (2).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "handbag-003",
+    "slug": "premium-handbag",
+    "title": "Premium Handbag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "handbags",
+    "price": 3499,
+    "description": "A premium handbag combining practical storage with a polished everyday finish.",
+    "isOnSale": true,
+    "salePrice": 2999,
+    "discountPercentage": 14,
+    "orderCount": 217,
+    "rating": 4.8,
+    "reviewCount": 91,
+    "createdAt": "2026-08-14",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.37 PM.jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.37 PM.jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.37.37 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.00 PM.jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.00 PM.jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.00 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "handbag-004",
+    "slug": "modern-handbag",
+    "title": "Modern Handbag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "handbags",
+    "price": 2899,
+    "description": "A modern handbag designed with a clean silhouette and versatile everyday appeal.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 126,
+    "rating": 4.4,
+    "reviewCount": 37,
+    "createdAt": "2026-08-03",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.01 PM (1).jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.01 PM (1).jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.01 PM (1).jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.01 PM (2).jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.01 PM (2).jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.01 PM (2).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "handbag-005",
+    "slug": "chic-everyday-handbag",
+    "title": "Chic Everyday Handbag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "handbags",
+    "price": 3099,
+    "description": "A chic everyday handbag offering comfortable carrying and effortless styling.",
+    "isOnSale": true,
+    "salePrice": 2699,
+    "discountPercentage": 13,
+    "orderCount": 98,
+    "rating": 4.6,
+    "reviewCount": 42,
+    "createdAt": "2026-08-06",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.01 PM.jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.01 PM.jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.01 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.02 PM (1).jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.02 PM (1).jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.02 PM (1).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "handbag-006",
+    "slug": "signature-handbag",
+    "title": "Signature Handbag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "handbags",
+    "price": 3299,
+    "description": "A signature handbag designed for a premium look with practical everyday storage.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 156,
+    "rating": 4.7,
+    "reviewCount": 58,
+    "createdAt": "2026-08-12",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.02 PM (2).jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.02 PM (2).jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.02 PM (2).jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.02 PM.jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.02 PM.jpeg",
+          "/products/bags/handbags/WhatsApp Image 2026-08-17 at 5.40.02 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-001",
+    "slug": "classic-mini-handbag",
+    "title": "Classic Mini Handbag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1799,
+    "description": "A timeless mini handbag designed for everyday elegance and effortless styling.",
+    "isOnSale": true,
+    "salePrice": 1399,
+    "discountPercentage": 22,
+    "orderCount": 218,
+    "rating": 4.7,
+    "reviewCount": 118,
+    "createdAt": "2026-08-01",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (3).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (3).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (3).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-002",
+    "slug": "elegant-mini-bag",
+    "title": "Elegant Mini Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1899,
+    "description": "A compact and elegant mini bag created for sophisticated everyday looks.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 164,
+    "rating": 4.6,
+    "reviewCount": 73,
+    "createdAt": "2026-07-28",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.08 PM (2).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.08 PM (2).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.08 PM (2).jpeg"
+        ]
+      },
+      {
+        "name": "Beige",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-003",
+    "slug": "compact-daily-mini-bag",
+    "title": "Compact Daily Mini Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1699,
+    "description": "A compact mini bag designed to carry everyday essentials with ease.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 129,
+    "rating": 4.5,
+    "reviewCount": 54,
+    "createdAt": "2026-07-21",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM (3).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM (3).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM (3).jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (1).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-004",
+    "slug": "modern-mini-bag",
+    "title": "Modern Mini Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1849,
+    "description": "A modern mini bag with a clean silhouette for versatile everyday styling.",
+    "isOnSale": true,
+    "salePrice": 1499,
+    "discountPercentage": 19,
+    "orderCount": 198,
+    "rating": 4.7,
+    "reviewCount": 86,
+    "createdAt": "2026-08-04",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Tan",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-005",
+    "slug": "chic-mini-handbag",
+    "title": "Chic Mini Handbag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1749,
+    "description": "A chic mini handbag designed for effortless styling and everyday convenience.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 143,
+    "rating": 4.5,
+    "reviewCount": 61,
+    "createdAt": "2026-07-25",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Pink",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-006",
+    "slug": "premium-mini-handbag",
+    "title": "Premium Mini Handbag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1999,
+    "description": "A premium mini handbag combining compact practicality with a refined finish.",
+    "isOnSale": true,
+    "salePrice": 1599,
+    "discountPercentage": 20,
+    "orderCount": 221,
+    "rating": 4.8,
+    "reviewCount": 104,
+    "createdAt": "2026-08-06",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (3).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (3).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (3).jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM (1).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-007",
+    "slug": "everyday-mini-carry-bag",
+    "title": "Everyday Mini Carry Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1599,
+    "description": "A practical mini carry bag designed for simple everyday use.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 91,
+    "rating": 4.3,
+    "reviewCount": 38,
+    "createdAt": "2026-07-18",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Beige",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM (1).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-008",
+    "slug": "minimal-mini-bag",
+    "title": "Minimal Mini Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1749,
+    "description": "A minimal mini bag offering a clean design with practical everyday storage.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 88,
+    "rating": 4.4,
+    "reviewCount": 36,
+    "createdAt": "2026-07-20",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Beige",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-009",
+    "slug": "classic-mini-bag",
+    "title": "Classic Mini Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1649,
+    "description": "A timeless mini bag offering practical storage in a compact silhouette.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 77,
+    "rating": 4.4,
+    "reviewCount": 31,
+    "createdAt": "2026-07-26",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-010",
+    "slug": "premium-mini-bag",
+    "title": "Premium Mini Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1949,
+    "description": "A premium compact bag designed for refined everyday styling.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 103,
+    "rating": 4.7,
+    "reviewCount": 44,
+    "createdAt": "2026-08-05",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (1).jpeg"
+        ]
+      },
+      {
+        "name": "Gold",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM (1).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-011",
+    "slug": "stylish-mini-carry-bag",
+    "title": "Stylish Mini Carry Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1699,
+    "description": "A stylish compact bag designed for convenient everyday carrying.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 69,
+    "rating": 4.4,
+    "reviewCount": 26,
+    "createdAt": "2026-07-23",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Pink",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM (1).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-012",
+    "slug": "elegant-compact-bag",
+    "title": "Elegant Compact Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1799,
+    "description": "A refined compact bag designed for simple everyday styling.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 81,
+    "rating": 4.5,
+    "reviewCount": 33,
+    "createdAt": "2026-08-01",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Beige",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (2).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (2).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM (2).jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-013",
+    "slug": "chic-everyday-mini-bag",
+    "title": "Chic Everyday Mini Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1849,
+    "description": "A chic mini bag designed to carry essentials with effortless style.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 96,
+    "rating": 4.5,
+    "reviewCount": 38,
+    "createdAt": "2026-08-07",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.06 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Tan",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.09 PM (1).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "minibag-014",
+    "slug": "signature-mini-bag",
+    "title": "Signature Mini Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "minibags",
+    "price": 1999,
+    "description": "A signature compact bag combining practical design with a premium finish.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 112,
+    "rating": 4.6,
+    "reviewCount": 47,
+    "createdAt": "2026-08-08",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM.jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.07 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM (1).jpeg",
+          "/products/bags/minibags/WhatsApp Image 2026-08-17 at 5.40.10 PM (1).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sling-001",
+    "slug": "classic-sling-bag",
+    "title": "Classic Sling Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "sling",
+    "price": 1899,
+    "description": "A versatile sling bag designed for hands-free comfort and everyday essentials.",
+    "isOnSale": true,
+    "salePrice": 1499,
+    "discountPercentage": 21,
+    "orderCount": 276,
+    "rating": 4.8,
+    "reviewCount": 143,
+    "createdAt": "2026-08-18",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sling-002",
+    "slug": "urban-crossbody-sling",
+    "title": "Urban Crossbody Sling",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "sling",
+    "price": 2099,
+    "description": "A modern crossbody sling with a practical design for everyday use.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 121,
+    "rating": 4.5,
+    "reviewCount": 56,
+    "createdAt": "2026-08-05",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.16 PM (1).jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.16 PM (1).jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.16 PM (1).jpeg"
+        ]
+      },
+      {
+        "name": "Tan",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sling-003",
+    "slug": "everyday-crossbody-bag",
+    "title": "Everyday Crossbody Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "sling",
+    "price": 1999,
+    "description": "A comfortable crossbody bag designed for simple everyday carrying.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 87,
+    "rating": 4.4,
+    "reviewCount": 35,
+    "createdAt": "2026-07-22",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.16 PM (1).jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.16 PM (1).jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.16 PM (1).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sling-004",
+    "slug": "minimal-sling-bag",
+    "title": "Minimal Sling Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "sling",
+    "price": 1799,
+    "description": "A minimal sling bag designed for lightweight everyday carrying.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 73,
+    "rating": 4.3,
+    "reviewCount": 29,
+    "createdAt": "2026-07-15",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Beige",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM (2).jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM (2).jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM (2).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sling-005",
+    "slug": "casual-daily-sling",
+    "title": "Casual Daily Sling",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "sling",
+    "price": 1899,
+    "description": "A casual sling bag made for comfortable daily use and easy styling.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 94,
+    "rating": 4.4,
+    "reviewCount": 37,
+    "createdAt": "2026-07-27",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Tan",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sling-006",
+    "slug": "compact-shoulder-sling",
+    "title": "Compact Shoulder Sling",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "sling",
+    "price": 1949,
+    "description": "A compact shoulder sling designed for everyday essentials.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 82,
+    "rating": 4.5,
+    "reviewCount": 34,
+    "createdAt": "2026-08-02",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM (2).jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM (2).jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM (2).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sling-007",
+    "slug": "modern-crossbody-sling",
+    "title": "Modern Crossbody Sling",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "sling",
+    "price": 2149,
+    "description": "A modern crossbody sling designed for stylish everyday movement.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 109,
+    "rating": 4.6,
+    "reviewCount": 45,
+    "createdAt": "2026-08-04",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Tan",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM (1).jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM (1).jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM (1).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sling-008",
+    "slug": "premium-sling-bag",
+    "title": "Premium Sling Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "sling",
+    "price": 2299,
+    "description": "A premium sling bag combining practical storage with a refined appearance.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 135,
+    "rating": 4.7,
+    "reviewCount": 58,
+    "createdAt": "2026-08-27",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM (2).jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM (2).jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.14 PM (2).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sling-009",
+    "slug": "signature-sling-bag",
+    "title": "Signature Sling Bag",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "sling",
+    "price": 2199,
+    "description": "A signature sling bag designed for effortless everyday styling.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 117,
+    "rating": 4.6,
+    "reviewCount": 49,
+    "createdAt": "2026-08-09",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.13 PM.jpeg"
+        ]
+      },
+      {
+        "name": "Beige",
+        "images": [
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.15 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.15 PM.jpeg",
+          "/products/bags/sling/WhatsApp Image 2026-08-17 at 5.40.15 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "tote-001",
+    "slug": "everyday-carry-tote",
+    "title": "Everyday Carry Tote",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "tote",
+    "price": 2899,
+    "description": "A spacious tote bag designed to carry daily essentials with comfort and style.",
+    "isOnSale": true,
+    "salePrice": 2299,
+    "discountPercentage": 21,
+    "orderCount": 347,
+    "rating": 4.9,
+    "reviewCount": 192,
+    "createdAt": "2026-08-14",
+    "isFeatured": true,
+    "variants": [
+      {
+        "id": "tote-001-brown",
+        "name": "Brown",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.36 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.36 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.36 PM.jpeg"
+        ]
+      },
+      {
+        "id": "tote-001-beige",
+        "name": "Beige",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.36 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.36 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.36 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "tote-002",
+    "slug": "classic-work-tote",
+    "title": "Classic Work Tote",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "tote",
+    "price": 3199,
+    "description": "A practical and elegant tote with room for your everyday work essentials.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 167,
+    "rating": 4.6,
+    "reviewCount": 81,
+    "createdAt": "2026-07-30",
+    "isFeatured": false,
+    "variants": [
+      {
+        "id": "tote-002-black",
+        "name": "Black",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.39 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.39 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.39 PM.jpeg"
+        ]
+      },
+      {
+        "id": "tote-002-tan",
+        "name": "Tan",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.39 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.39 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.39 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "tote-003",
+    "slug": "premium-daily-tote",
+    "title": "Premium Daily Tote",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "tote",
+    "price": 3299,
+    "description": "A spacious premium tote designed for comfortable everyday carrying.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 142,
+    "rating": 4.7,
+    "reviewCount": 63,
+    "createdAt": "2026-08-03",
+    "isFeatured": false,
+    "variants": [
+      {
+        "id": "tote-003-brown",
+        "name": "Brown",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM (1).jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM (1).jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM (1).jpeg"
+        ]
+      },
+      {
+        "id": "tote-003-beige",
+        "name": "Beige",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM (1).jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM (1).jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM (1).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "tote-004",
+    "slug": "elegant-structured-tote",
+    "title": "Elegant Structured Tote",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "tote",
+    "price": 3499,
+    "description": "A structured tote designed for polished everyday and office looks.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 128,
+    "rating": 4.6,
+    "reviewCount": 51,
+    "createdAt": "2026-07-31",
+    "isFeatured": false,
+    "variants": [
+      {
+        "id": "tote-004-black",
+        "name": "Black",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM (2).jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM (2).jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM (2).jpeg"
+        ]
+      },
+      {
+        "id": "tote-004-tan",
+        "name": "Tan",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM (2).jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM (2).jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM (2).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "tote-005",
+    "slug": "minimal-everyday-tote",
+    "title": "Minimal Everyday Tote",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "tote",
+    "price": 2999,
+    "description": "A clean and versatile tote designed for simple everyday use.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 104,
+    "rating": 4.5,
+    "reviewCount": 42,
+    "createdAt": "2026-07-26",
+    "isFeatured": false,
+    "variants": [
+      {
+        "id": "tote-005-beige",
+        "name": "Beige",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM.jpeg"
+        ]
+      },
+      {
+        "id": "tote-005-brown",
+        "name": "Brown",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.37.40 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "tote-006",
+    "slug": "modern-office-tote",
+    "title": "Modern Office Tote",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "tote",
+    "price": 3399,
+    "description": "A modern office tote designed to organize everyday essentials with ease.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 118,
+    "rating": 4.7,
+    "reviewCount": 49,
+    "createdAt": "2026-08-07",
+    "isFeatured": true,
+    "variants": [
+      {
+        "id": "tote-006-black",
+        "name": "Black",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.40.15 PM (2).jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.40.15 PM (2).jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.40.15 PM (2).jpeg"
+        ]
+      },
+      {
+        "id": "tote-006-brown",
+        "name": "Brown",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.40.15 PM (2).jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.40.15 PM (2).jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.40.15 PM (2).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "tote-007",
+    "slug": "signature-carry-tote",
+    "title": "Signature Carry Tote",
+    "gender": "women",
+    "category": "bags",
+    "subcategory": "tote",
+    "price": 3599,
+    "description": "A signature tote offering generous space with a premium everyday finish.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 154,
+    "rating": 4.8,
+    "reviewCount": 67,
+    "createdAt": "2026-08-10",
+    "isFeatured": true,
+    "variants": [
+      {
+        "id": "tote-007-black",
+        "name": "Black",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.40.16 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.40.16 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.40.16 PM.jpeg"
+        ]
+      },
+      {
+        "id": "tote-007-tan",
+        "name": "Tan",
+        "images": [
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.40.16 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.40.16 PM.jpeg",
+          "/products/bags/tote/WhatsApp Image 2026-08-17 at 5.40.16 PM.jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "wallet-001",
+    "slug": "classic-leather-wallet",
+    "title": "Classic Leather Wallet",
+    "gender": "men",
+    "category": "bags",
+    "subcategory": "wallet",
+    "price": 999,
+    "description": "A compact wallet designed for cards, cash and everyday convenience.",
+    "isOnSale": true,
+    "salePrice": 799,
+    "discountPercentage": 20,
+    "orderCount": 289,
+    "rating": 4.7,
+    "reviewCount": 135,
+    "createdAt": "2026-08-11",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (1).jpeg",
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (1).jpeg",
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (1).jpeg"
+        ]
+      },
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (2).jpeg",
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (2).jpeg",
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (2).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "wallet-002",
+    "slug": "slim-everyday-wallet",
+    "title": "Slim Everyday Wallet",
+    "gender": "men",
+    "category": "bags",
+    "subcategory": "wallet",
+    "price": 1199,
+    "description": "A slim and practical wallet with a clean design for daily use.",
+    "isOnSale": false,
+    "salePrice": null,
+    "discountPercentage": 0,
+    "orderCount": 143,
+    "rating": 4.5,
+    "reviewCount": 62,
+    "createdAt": "2026-08-01",
+    "isFeatured": false,
+    "variants": [
+      {
+        "name": "Brown",
+        "images": [
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (2).jpeg",
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (2).jpeg",
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (2).jpeg"
+        ]
+      },
+      {
+        "name": "Tan",
+        "images": [
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (1).jpeg",
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (1).jpeg",
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (1).jpeg"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "wallet-003",
+    "slug": "premium-compact-wallet",
+    "title": "Premium Compact Wallet",
+    "gender": "men",
+    "category": "bags",
+    "subcategory": "wallet",
+    "price": 1399,
+    "description": "A refined compact wallet combining everyday practicality with a premium appearance.",
+    "isOnSale": true,
+    "salePrice": 1099,
+    "discountPercentage": 21,
+    "orderCount": 196,
+    "rating": 4.8,
+    "reviewCount": 97,
+    "createdAt": "2026-08-16",
+    "isFeatured": true,
+    "variants": [
+      {
+        "name": "Black",
+        "images": [
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (1).jpeg",
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (1).jpeg",
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.31 PM (1).jpeg"
+        ]
+      },
+      {
+        "name": "Coffee",
+        "images": [
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.32 PM.jpeg",
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.32 PM.jpeg",
+          "/products/bags/wallet/WhatsApp Image 2026-08-17 at 5.37.32 PM.jpeg"
+        ]
+      }
+    ]
+  }
+]
