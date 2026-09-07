@@ -1,0 +1,672 @@
+// ============================================================================
+// NIYA BAGS - ADMIN PANEL SCHEMA
+//
+// DATABASE: PostgreSQL, via the Prisma 7 driver adapter in src/lib/db.ts.
+//
+// Statuses are String columns validated by Zod in src/lib/enums.ts rather than
+// native Postgres enums. Adding an order status to a native enum needs a
+// migration and a deploy; an order workflow gains states often enough that the
+// migration tax is not worth the marginal integrity, and Zod already guards
+// every write path. JSON payloads DO use the native Json (jsonb) type.
+//
+// MONEY
+// Every monetary column is an Int in PAISE (1 rupee = 100 paise). The legacy
+// storefront data is in rupees, so the seeder multiplies by 100 and the public
+// serializer divides by 100. Never store money as Float.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7 keeps the connection URL in prisma.config.ts and takes a driver
+// adapter at the PrismaClient constructor (see src/lib/db.ts).
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// IDENTITY & ACCESS
+// Exactly two roles: ADMIN and USER. No third role, ever.
+// Auth.js runs the Credentials provider with a JWT session, so there is no
+// Account/Session table - the JWT is a cache and the DB is the source of truth.
+// ============================================================================
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  passwordHash String
+  role         String    @default("USER") // ADMIN | USER
+  isActive     Boolean   @default(true)
+  image        String?
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  auditLogs     AuditLog[]
+  stockMoves    StockMovement[]
+  orderEvents   OrderEvent[]
+  customer      Customer?
+
+  @@index([role])
+}
+
+/// Written on every login attempt so lockout works without Redis.
+model LoginAttempt {
+  id        String   @id @default(cuid())
+  email     String
+  ip        String?
+  userAgent String?
+  success   Boolean
+  createdAt DateTime @default(now())
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+}
+
+// ============================================================================
+// CATALOG
+// Legacy shape preservation: Product.id keeps values like "handbag-001" and
+// variant ids keep "tote-001-brown" where the storefront already has them, so
+// shoppers' saved localStorage carts are not orphaned at cutover.
+// ============================================================================
+
+/// Two-level tree. Parent = legacy `category` ("bags").
+/// Child  = legacy `subcategory` ("handbags", "tote", ...).
+model Category {
+  id              String    @id @default(cuid())
+  slug            String    @unique
+  name            String
+  description     String?
+  parentId        String?
+  position        Int       @default(0)
+  isFeatured      Boolean   @default(false)
+  isActive        Boolean   @default(true)
+  imageMediaId    String?
+  metaTitle       String?
+  metaDescription String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  parent   Category?   @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Category[]  @relation("CategoryTree")
+  image    MediaAsset? @relation(fields: [imageMediaId], references: [id], onDelete: SetNull)
+  products Product[]
+
+  @@index([parentId, position])
+}
+
+model Product {
+  id          String @id
+  slug        String @unique
+  title       String
+  description String @default("")
+
+  /// "women" | "men". Kept as a product field, not a category level, because
+  /// the storefront filters on product.gender and derives its category facets
+  /// from it. Making it a category level would change the public JSON shape.
+  gender     String  @default("women")
+  categoryId String?
+
+  status      String    @default("DRAFT") // DRAFT | PUBLISHED | ARCHIVED
+  publishedAt DateTime?
+
+  pricePaise     Int
+  salePricePaise Int?
+  saleStartsAt   DateTime?
+  saleEndsAt     DateTime?
+  costPaise      Int?
+
+  /// discountPercentage is NEVER stored - it is computed from price/salePrice
+  /// at serialization time. The legacy data stores both and they have drifted.
+  isFeatured Boolean @default(false)
+  position   Int     @default(0)
+
+  ratingAvg   Float @default(0)
+  reviewCount Int   @default(0)
+  orderCount  Int   @default(0)
+
+  metaTitle       String?
+  metaDescription String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  category Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  variants ProductVariant[]
+  images   ProductImage[]
+  reviews  Review[]
+  tags     Tag[]
+  orderItems OrderItem[]
+
+  @@index([status, position])
+  @@index([categoryId])
+  @@index([isFeatured])
+  @@index([gender])
+  @@index([createdAt])
+}
+
+model Tag {
+  id       String    @id @default(cuid())
+  slug     String    @unique
+  name     String
+  products Product[]
+}
+
+/// One row per purchasable colourway. The storefront's variants have no ids
+/// today except the 7 tote products; the seeder mints deterministic ids for
+/// the rest so CartContext's variant key stops collapsing to the product id.
+model ProductVariant {
+  id        String  @id
+  productId String
+  name      String
+  colorHex  String?
+  sku       String? @unique
+
+  /// Null means "inherit the product price".
+  pricePaise     Int?
+  salePricePaise Int?
+
+  position  Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  images    ProductImage[]
+  inventory InventoryItem?
+  movements StockMovement[]
+  orderItems OrderItem[]
+
+  @@unique([productId, name])
+  @@index([productId, position])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  variantId String?
+  mediaId   String
+  alt       String?
+  position  Int     @default(0)
+
+  product Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  media   MediaAsset      @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+
+  @@index([productId, position])
+  @@index([variantId, position])
+  @@index([mediaId])
+}
+
+// ============================================================================
+// INVENTORY
+// StockMovement is the ledger and the source of truth; InventoryItem.onHand is
+// a cached projection updated in the same transaction as the movement. Reads
+// are constant-time; the ledger stays auditable.
+// ============================================================================
+
+model InventoryItem {
+  id                String   @id @default(cuid())
+  variantId         String   @unique
+  onHand            Int      @default(0)
+  reserved          Int      @default(0)
+  lowStockThreshold Int      @default(3)
+  allowBackorder    Boolean  @default(false)
+  /// Reserved for a future multi-location model. One row per variant today.
+  location          String   @default("DEFAULT")
+  updatedAt         DateTime @updatedAt
+
+  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  @@index([onHand])
+}
+
+model StockMovement {
+  id        String   @id @default(cuid())
+  variantId String
+  /// Signed. Negative for sales and damage, positive for purchases and restocks.
+  delta     Int
+  /// PURCHASE | SALE | RETURN | ADJUSTMENT | CORRECTION | DAMAGE | SEED
+  type      String
+  reason    String?
+  note      String?
+  orderId   String?
+  actorId   String?
+  /// onHand after this movement, so history reads without replaying the ledger.
+  balance   Int
+  createdAt DateTime @default(now())
+
+  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  order   Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  actor   User?          @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([variantId, createdAt])
+  @@index([orderId])
+}
+
+// ============================================================================
+// CUSTOMERS & ORDERS
+// Checkout on the storefront is anonymous - it never gates on auth and the
+// fake localStorage accounts cannot migrate. So Customer is keyed by EMAIL,
+// with an optional link to a real User account if one is ever created.
+// ============================================================================
+
+model Customer {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  fullName  String?
+  phone     String?
+  userId    String?  @unique
+  status    String   @default("ACTIVE") // ACTIVE | BLOCKED
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  orders    Order[]
+  addresses Address[]
+  reviews   Review[]
+
+  @@index([createdAt])
+}
+
+model Address {
+  id         String   @id @default(cuid())
+  customerId String
+  fullName   String
+  phone      String?
+  line1      String
+  city       String
+  state      String
+  pinCode    String
+  country    String   @default("IN")
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model Order {
+  id          String @id @default(cuid())
+  /// Human-facing, matches the storefront format: NIYA-<epoch ms>.
+  orderNumber String @unique
+
+  customerId String?
+
+  status        String @default("PLACED")   // see ORDER_STATUSES
+  paymentStatus String @default("PENDING")  // PENDING | PAID | FAILED | REFUNDED | PARTIALLY_REFUNDED
+  paymentMethod String @default("COD")      // COD | ONLINE
+  /// STOREFRONT | MANUAL - manual entry is how this store takes COD orders today.
+  source        String @default("MANUAL")
+
+  subtotalPaise Int @default(0)
+  shippingPaise Int @default(0)
+  discountPaise Int @default(0)
+  taxPaise      Int @default(0)
+  totalPaise    Int @default(0)
+  refundedPaise Int @default(0)
+
+  discountCode String?
+
+  // Shipping snapshot - deliberately denormalised. An order must render
+  // exactly as it was placed even if the customer later edits their address.
+  shipFullName String
+  shipEmail    String
+  shipPhone    String
+  shipAddress  String
+  shipCity     String
+  shipState    String
+  shipPinCode  String
+
+  /// The legacy storefront wrote `date` as a localised string, not ISO.
+  /// Preserved verbatim for imported orders; placedAt is the real timestamp.
+  legacyDateString String?
+
+  placedAt    DateTime  @default(now())
+  confirmedAt DateTime?
+  shippedAt   DateTime?
+  deliveredAt DateTime?
+  cancelledAt DateTime?
+  cancelReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer  Customer?       @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  items     OrderItem[]
+  events    OrderEvent[]
+  movements StockMovement[]
+
+  @@index([status, placedAt])
+  @@index([paymentStatus])
+  @@index([customerId])
+  @@index([placedAt])
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  productId String?
+  variantId String?
+
+  // Snapshots: the catalogue may change or be deleted; the order may not.
+  titleSnapshot   String
+  variantSnapshot String?
+  skuSnapshot     String?
+  imageUrl        String?
+
+  /// What the item would have cost at list price, for discount analytics.
+  listPricePaise Int
+  /// What was actually charged per unit.
+  unitPricePaise Int
+  quantity       Int @default(1)
+  lineTotalPaise Int
+
+  order   Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+/// Append-only order timeline. Never updated, never deleted.
+model OrderEvent {
+  id         String   @id @default(cuid())
+  orderId    String
+  /// STATUS_CHANGE | PAYMENT | NOTE | SYSTEM | REFUND
+  type       String
+  fromStatus String?
+  toStatus   String?
+  message    String
+  /// Internal notes are admin-only and must never reach a public serializer.
+  isInternal Boolean  @default(false)
+  actorId    String?
+  createdAt  DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
+}
+
+// ============================================================================
+// REVIEWS
+// The three legacy homepage testimonials have no rating and no product link.
+// They are imported as isTestimonial rows so the homepage keeps rendering,
+// and real product reviews can coexist later.
+// ============================================================================
+
+model Review {
+  id             String  @id @default(cuid())
+  productId      String?
+  customerId     String?
+  authorName     String
+  authorLocation String?
+  /// CustomerReviews.jsx renders `review.rating || 5`, so null is safe.
+  rating         Int?
+  title          String?
+  body           String
+  status         String  @default("PENDING") // PENDING | APPROVED | REJECTED
+  isFeatured     Boolean @default(false)
+  isTestimonial  Boolean @default(false)
+  position       Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product  Product?  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([productId])
+  @@index([isFeatured, position])
+}
+
+// ============================================================================
+// MARKETING
+// Level 1 (product sale price) is on Product above and ships in v1.
+// Discount is Level 2: modelled now, enforced only when the storefront can
+// send a code. Today NIYA10 is hardcoded client-side and checkout ignores it.
+// ============================================================================
+
+model Discount {
+  id               String    @id @default(cuid())
+  code             String    @unique
+  name             String
+  /// PERCENT | FIXED | FREE_SHIPPING
+  type             String
+  /// Percent points for PERCENT, paise for FIXED, ignored for FREE_SHIPPING.
+  value            Int
+  minOrderPaise    Int?
+  usageLimit       Int?
+  perCustomerLimit Int?
+  usageCount       Int       @default(0)
+  startsAt         DateTime?
+  endsAt           DateTime?
+  isActive         Boolean   @default(false)
+  /// ALL | CATEGORY | PRODUCT
+  appliesTo        String    @default("ALL")
+  targetIds        String? // CSV of category or product ids
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([isActive, startsAt, endsAt])
+}
+
+// ============================================================================
+// CONTENT / CMS
+// A section registry, not a table per widget. Adding a new homepage section
+// type later needs a Zod schema and a form renderer - no migration.
+// Repeatable sections (hero slides, announcements, reels, badges) get ordered
+// ContentBlock children so each item reorders and toggles independently.
+// ============================================================================
+
+model ContentSection {
+  id    String @id @default(cuid())
+  /// Stable registry key, e.g. "home.hero", "home.reels", "global.announcement_bar".
+  key   String @unique
+  /// home | shop | wishlist | global
+  page  String @default("home")
+  /// Registry type: hero | announcement_bar | campaign_spotlight | categories |
+  /// featured_products | promo_banner | brand_craftsmanship | customer_reviews |
+  /// reels | trust_badges
+  type  String
+  title String
+
+  position    Int       @default(0)
+  enabled     Boolean   @default(true)
+  publishAt   DateTime?
+  unpublishAt DateTime?
+
+  /// Section-level settings as JSON (headings, button labels, limits).
+  payload      Json    @default("{}")
+  /// Unpublished working copy. Null means "no pending changes".
+  draftPayload Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  blocks ContentBlock[]
+
+  @@index([page, position])
+}
+
+model ContentBlock {
+  id        String  @id @default(cuid())
+  sectionId String
+  /// Preserves the legacy item id ("hero-1", "promo-home-001") where one exists.
+  legacyId  String?
+
+  position    Int       @default(0)
+  enabled     Boolean   @default(true)
+  publishAt   DateTime?
+  unpublishAt DateTime?
+
+  /// Item payload as JSON, validated by the section type's Zod schema.
+  payload Json   @default("{}")
+  mediaId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  section ContentSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  media   MediaAsset?    @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+
+  @@index([sectionId, position])
+}
+
+/// The footer pages: about, our-story, contact, shipping-returns, size-guide,
+/// faq, privacy-policy, terms-of-use. They share a common shape
+/// (eyebrow / title / intro / sections[]) plus per-page extras held in `extra`.
+model CmsPage {
+  id      String @id @default(cuid())
+  slug    String @unique
+  title   String
+  eyebrow String?
+  intro   String?
+  /// Ordered [{ id?, title, content }] blocks as JSON.
+  body    Json   @default("[]")
+  /// Page-specific extras as JSON: values[], quote, contactDetails[].
+  extra   Json   @default("{}")
+
+  status      String    @default("PUBLISHED") // DRAFT | PUBLISHED
+  publishedAt DateTime?
+
+  metaTitle       String?
+  metaDescription String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+model Faq {
+  id        String   @id @default(cuid())
+  question  String
+  answer    String
+  group     String   @default("General")
+  position  Int      @default(0)
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([enabled, position])
+}
+
+/// Single-row config for the storefront footer.
+model FooterConfig {
+  id               String   @id @default("default")
+  brandName        String
+  brandDescription String
+  /// [{ id, platform, url }]
+  socialLinks      Json     @default("[]")
+  /// [{ id, title, links: [{ id, label, path }] }]
+  sections         Json     @default("[]")
+  /// { heading, description, email }
+  customerService  Json     @default("{}")
+  /// [{ id, label, path }]
+  legalLinks       Json     @default("[]")
+  copyright        String
+  updatedAt        DateTime @updatedAt
+}
+
+// ============================================================================
+// MEDIA
+// Deduped on sourceUrl, not a content hash: six of the existing assets are
+// external Unsplash/Pexels URLs whose bytes are never fetched.
+// ============================================================================
+
+model MediaAsset {
+  id        String  @id @default(cuid())
+  url       String  @unique
+  pathname  String?
+  filename  String
+  /// image | video
+  kind      String  @default("image")
+  mimeType  String?
+  width     Int?
+  height    Int?
+  sizeBytes Int?
+  checksum  String?
+  alt       String?
+  folder    String  @default("uncategorised")
+  /// legacy (already in the storefront /public) | upload | external
+  source    String  @default("upload")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  productImages ProductImage[]
+  contentBlocks ContentBlock[]
+  categories    Category[]
+
+  @@index([kind, createdAt])
+  @@index([folder])
+}
+
+// ============================================================================
+// OPERATIONS
+// ============================================================================
+
+/// Typed key/value registry. `type` drives which form control renders.
+model Setting {
+  key       String   @id
+  value     String
+  /// string | number | boolean | json | money
+  type      String   @default("string")
+  group     String   @default("general")
+  label     String
+  helpText  String?
+  updatedAt DateTime @updatedAt
+
+  @@index([group])
+}
+
+model Notification {
+  id         String    @id @default(cuid())
+  /// NEW_ORDER | LOW_STOCK | OUT_OF_STOCK | NEW_REVIEW | ORDER_CANCELLED |
+  /// CONTENT_EXPIRING | SYSTEM
+  type       String
+  /// info | warning | critical
+  severity   String    @default("info")
+  title      String
+  body       String?
+  entityType String?
+  entityId   String?
+  href       String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([readAt, createdAt])
+  @@index([type])
+}
+
+/// Append-only. There is no update or delete path for this table.
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actorEmail String
+  /// e.g. product.update, order.status_change, content.publish
+  action     String
+  entityType String
+  entityId   String?
+  summary    String
+  /// { before: {...}, after: {...} } as JSON, secrets stripped.
+  diff       Json?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([actorId])
+}

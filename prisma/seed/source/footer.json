@@ -1,0 +1,306 @@
+{
+  "footer": {
+    "brand": {
+      "name": "Niya Bags",
+      "description": "Modern luxury handbags thoughtfully designed and handcrafted for the woman who carries her own story."
+    },
+    "socialLinks": [
+      {
+        "id": 1,
+        "platform": "Instagram",
+        "url": "#"
+      },
+      {
+        "id": 2,
+        "platform": "Facebook",
+        "url": "#"
+      },
+      {
+        "id": 3,
+        "platform": "YouTube",
+        "url": "#"
+      },
+      {
+        "id": 4,
+        "platform": "Email",
+        "url": "mailto:support@niyabags.com"
+      }
+    ],
+    "sections": [
+      {
+        "id": 1,
+        "title": "ABOUT",
+        "links": [
+          {
+            "id": 1,
+            "label": "Our Story",
+            "path": "/our-story"
+          },
+          {
+            "id": 2,
+            "label": "About Niya",
+            "path": "/about"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "CUSTOMER CARE",
+        "links": [
+          {
+            "id": 1,
+            "label": "Contact Us",
+            "path": "/contact"
+          },
+          {
+            "id": 2,
+            "label": "Shipping & Returns",
+            "path": "/shipping-returns#shipping"
+          },
+          {
+            "id": 3,
+            "label": "Exchange Policy",
+            "path": "/shipping-returns#exchange"
+          },
+          {
+            "id": 4,
+            "label": "Size Guide",
+            "path": "/size-guide#size-guide"
+          },
+          {
+            "id": 5,
+            "label": "Care Guide",
+            "path": "/size-guide#care-guide"
+          },
+          {
+            "id": 6,
+            "label": "FAQs",
+            "path": "/faq"
+          }
+        ]
+      }
+    ],
+    "customerService": {
+      "heading": "NEED HELP WITH YOUR ORDER?",
+      "description": "Our team is here to assist you.",
+      "email": "support@niyabags.com"
+    },
+    "legalLinks": [
+      {
+        "id": 1,
+        "label": "Privacy Policy",
+        "path": "/privacy-policy#privacy-policy"
+      },
+      {
+        "id": 2,
+        "label": "Terms of Use",
+        "path": "/terms-of-use#terms-of-use"
+      }
+    ],
+    "copyright": "© 2026 Niya Bags. All rights reserved."
+  },
+  "pages": {
+    "about": {
+      "slug": "about",
+      "eyebrow": "ABOUT NIYA",
+      "title": "Designed for the woman who carries her own story.",
+      "intro": "Niya Bags is a contemporary handbag brand built around thoughtful design, timeless silhouettes, and everyday elegance.",
+      "sections": [
+        {
+          "id": "design",
+          "title": "Thoughtful Design",
+          "content": "Every Niya piece is designed with a focus on clean silhouettes, considered details and effortless functionality. We believe a handbag should feel beautiful while naturally fitting into everyday life."
+        },
+        {
+          "id": "quality",
+          "title": "Made with Purpose",
+          "content": "We focus on creating pieces that balance contemporary style with practical use. From the proportions to the finishing details, every element has a purpose."
+        },
+        {
+          "id": "everyday",
+          "title": "For Every Day",
+          "content": "Niya handbags are created for the woman who moves through different moments of her day with confidence. Our designs are made to transition naturally from everyday routines to occasions that matter."
+        }
+      ],
+      "values": [
+        {
+          "id": "intentional-design",
+          "title": "Intentional Design",
+          "content": "Clean forms, thoughtful details and timeless silhouettes designed to stay relevant beyond a season."
+        },
+        {
+          "id": "everyday-elegance",
+          "title": "Everyday Elegance",
+          "content": "Pieces that feel refined without compromising comfort, functionality or versatility."
+        },
+        {
+          "id": "lasting-style",
+          "title": "Lasting Style",
+          "content": "A considered approach to design that focuses on pieces you can continue to carry and love."
+        }
+      ]
+    },
+    "our-story": {
+      "slug": "our-story",
+      "eyebrow": "OUR STORY",
+      "title": "A story shaped by design, purpose and everyday life.",
+      "intro": "Niya began with a simple idea — create handbags that feel considered, useful and beautiful enough to become part of the everyday.",
+      "sections": [
+        {
+          "title": "The Beginning",
+          "content": "Niya started with a love for handbags and a desire to create pieces that balance contemporary design with the practical needs of modern women."
+        },
+        {
+          "title": "Finding Our Identity",
+          "content": "We developed a design language around clean silhouettes, subtle details and versatile forms. Every collection is designed to feel distinctive without being difficult to wear."
+        },
+        {
+          "title": "Designed for Everyday Life",
+          "content": "From workdays and coffee runs to dinners and occasions that matter, our handbags are designed to move naturally with the woman carrying them."
+        }
+      ],
+      "quote": "The best designs are the ones that become part of your everyday life."
+    },
+    "contact": {
+      "slug": "contact",
+      "eyebrow": "CONTACT US",
+      "title": "We are here to help.",
+      "intro": "Have a question about your order, a product or anything else? Our team is here to assist you.",
+      "contactDetails": []
+    },
+    "shipping-returns": {
+      "slug": "shipping-returns",
+      "eyebrow": "CUSTOMER CARE",
+      "title": "Shipping & Returns",
+      "intro": "Everything you need to know about receiving, returning and exchanging your Niya order.",
+      "sections": [
+        {
+          "id": "shipping",
+          "title": "Shipping",
+          "content": "Orders are carefully packed and dispatched to the shipping address provided at checkout. Once your order has been shipped, you will receive tracking information by email or through the available order updates."
+        },
+        {
+          "id": "returns",
+          "title": "Returns",
+          "content": "If you are not completely satisfied with your purchase, eligible products can be returned within the applicable return period, provided they are unused and in their original condition."
+        },
+        {
+          "id": "exchange",
+          "title": "Exchange Policy",
+          "content": "Eligible products may be exchanged according to our exchange terms. Products must be unused, undamaged and returned with their original packaging and tags."
+        }
+      ]
+    },
+    "size-guide": {
+      "slug": "size-guide",
+      "eyebrow": "GUIDES",
+      "title": "Know your bag. Care for it well.",
+      "intro": "Explore our size information and simple care recommendations to help you choose and maintain your Niya piece.",
+      "sections": [
+        {
+          "id": "size-guide",
+          "title": "Size Guide",
+          "content": "Use the dimensions provided on each product page to understand the bag's proportions, capacity and fit for your everyday essentials."
+        },
+        {
+          "id": "care-guide",
+          "title": "Care Guide",
+          "content": "Keep your Niya bag away from excessive moisture, direct heat and harsh chemicals. Store it in its protective packaging when not in use and handle delicate finishes with care."
+        }
+      ]
+    },
+    "faq": {
+      "slug": "faq",
+      "eyebrow": "FAQ",
+      "title": "Frequently Asked Questions",
+      "intro": "Find answers to common questions about Niya products, orders, shipping and returns.",
+      "faqs": [
+        {
+          "question": "How can I place an order?",
+          "answer": "Browse the collection, select the product you want and add it to your shopping bag. Proceed to checkout and complete the required order details."
+        },
+        {
+          "question": "How can I track my order?",
+          "answer": "Once your order has been dispatched, tracking information will be provided through the available order updates."
+        },
+        {
+          "question": "Can I return my order?",
+          "answer": "Eligible products can be returned according to the applicable return policy. Products must meet the required condition and return requirements."
+        },
+        {
+          "question": "Can I exchange a product?",
+          "answer": "Eligible products may be exchanged according to the applicable exchange policy."
+        },
+        {
+          "question": "How should I care for my handbag?",
+          "answer": "Keep your handbag away from excessive moisture, direct sunlight and abrasive surfaces. Store it in its protective dust bag when not in use."
+        },
+        {
+          "question": "How can I contact Niya?",
+          "answer": "You can contact our customer support team at support@niyabags.com."
+        }
+      ]
+    },
+    "privacy-policy": {
+      "slug": "privacy-policy",
+      "eyebrow": "LEGAL",
+      "title": "Privacy Policy",
+      "intro": "Your privacy is important to us. This policy explains how Niya Bags collects, uses and protects information.",
+      "sections": [
+        {
+          "id": "privacy-policy",
+          "title": "Information We Collect",
+          "content": "We may collect information provided during account creation, checkout, customer support interactions and other interactions with our website."
+        },
+        {
+          "id": "how-we-use",
+          "title": "How We Use Information",
+          "content": "Information may be used to process orders, provide customer support, improve our website and communicate relevant service updates."
+        },
+        {
+          "id": "data-security",
+          "title": "Data Security",
+          "content": "We take reasonable measures to protect information handled through our website and services."
+        },
+        {
+          "id": "contact",
+          "title": "Contact",
+          "content": "For privacy-related questions, contact us at support@niyabags.com."
+        }
+      ]
+    },
+    "terms-of-use": {
+      "slug": "terms-of-use",
+      "eyebrow": "LEGAL",
+      "title": "Terms of Use",
+      "intro": "These terms govern your use of the Niya Bags website and services.",
+      "sections": [
+        {
+          "id": "terms-of-use",
+          "title": "Use of the Website",
+          "content": "By accessing and using the Niya Bags website, you agree to use the website responsibly and in accordance with applicable laws."
+        },
+        {
+          "id": "products",
+          "title": "Products and Information",
+          "content": "We make reasonable efforts to provide accurate product information, descriptions and images. Product availability and details may change without prior notice."
+        },
+        {
+          "id": "orders",
+          "title": "Orders",
+          "content": "Orders are subject to availability and confirmation. We reserve the right to cancel or modify an order where necessary."
+        },
+        {
+          "id": "intellectual-property",
+          "title": "Intellectual Property",
+          "content": "The content, branding, imagery, design and other materials on this website belong to Niya Bags or their respective owners and may not be reproduced without permission."
+        },
+        {
+          "id": "contact",
+          "title": "Contact",
+          "content": "For questions regarding these terms, contact us at support@niyabags.com."
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Niya Bags admin">
+  <!-- The same monogram the sidebar header draws: brand tile, N in the
+       brand foreground. Hard-coded hexes rather than the oklch tokens in
+       globals.css because a favicon is fetched outside the document and gets
+       no stylesheet. Keep the two in step if the brand colour changes. -->
+  <rect width="32" height="32" rx="7" fill="#a07045"/>
+  <path d="M10 23V9h3.1l6 9.2V9H22v14h-3.1l-6-9.2V23z" fill="#fafaf9"/>
+</svg>
