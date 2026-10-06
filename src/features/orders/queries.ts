@@ -1,414 +1,503 @@
 import "server-only";
 
-import { cache } from "react";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/db";
-import { resolveRange, type RangePreset } from "@/lib/dates";
-import {
-  ORDER_STATUSES,
-  PAYMENT_METHODS,
-  PAYMENT_STATUSES,
-  type OrderStatus,
-  type PaymentMethod,
-  type PaymentStatus,
-} from "@/lib/enums";
-import {
-  buildPageMeta,
-  one,
-  parseListParams,
-  type SearchParams,
-} from "@/lib/list-params";
+import { buildPageMeta, type ListParams, type PageMeta } from "@/lib/list-params";
+import { startOfIstDay, endOfIstDay } from "@/lib/dates";
+import { resolveDateRangeParams } from "@/components/shared/date-range";
+import { ORDER_STATUSES, type OrderStatus } from "@/lib/enums";
+
+import { isOnSale } from "@/lib/money";
+import { readSettingNumber } from "@/features/finance/settings-reader";
+import { CUSTOMIZATION_OPTION_SELECT } from "@/features/products/customization-service";
+import { parseChoices } from "@/features/products/customization";
+import { isChoiceType, isFileType } from "@/features/products/schemas";
+
+import type { ManualProductInfo } from "./manual-types";
+import type { OrderListFilters, OrderSort } from "./schemas";
 
 /**
- * Every number on the orders screens comes from these functions, and every one
- * of them is a real aggregate over the order tables. Nothing is estimated.
+ * Read side for the ORDERS module (Server Components + REST GET handlers).
  *
- * Cancelled and returned orders are excluded from revenue, and recorded refunds
- * are subtracted, so "revenue" here means the same thing it means on the
- * dashboard. Two screens disagreeing about revenue is how an operator stops
- * trusting the panel.
+ * Everything the list screen shows comes back in one page-sized query: the
+ * order rows, up to four item thumbnails, the seller names and the most
+ * recently updated live shipment (the §14.C8 "shipping status" column). The
+ * alternative - a query per row - is what turns a 25-row order list into 100
+ * round trips, and an operations team lives on this screen all day.
  */
-const REVENUE_STATUSES = [
-  "PLACED",
-  "CONFIRMED",
-  "PROCESSING",
-  "SHIPPED",
-  "DELIVERED",
-] as const;
 
-/**
- * "All time" is the default rather than a rolling window: this store has a few
- * hundred orders, and a list that silently hides last month's order because of
- * a default filter is a support call waiting to happen.
- */
-export const ORDER_RANGE_OPTIONS = [
-  { value: "all", label: "All time" },
-  { value: "today", label: "Today" },
-  { value: "7d", label: "7 days" },
-  { value: "30d", label: "30 days" },
-  { value: "90d", label: "90 days" },
-] as const;
+// ---------------------------------------------------------------------------
+// Filtering
+// ---------------------------------------------------------------------------
 
-export type OrderRangeKey = (typeof ORDER_RANGE_OPTIONS)[number]["value"];
-
-/** Only these two columns can be sorted on; anything else falls back to date. */
-export const ORDER_SORT_FIELDS = ["placedAt", "totalPaise"] as const;
-export type OrderSortField = (typeof ORDER_SORT_FIELDS)[number];
-
-function resolveOrderRange(key: OrderRangeKey) {
-  return key === "all" ? null : resolveRange(key as RangePreset);
+/** Only applied when the URL actually carries a range: no implicit window. */
+export function resolveOrderRange(filters: OrderListFilters, now = new Date()): { from: Date; to: Date } | null {
+  if (!filters.range && !filters.from && !filters.to) return null;
+  const params = new URLSearchParams();
+  if (filters.range) params.set("range", filters.range);
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  const resolved = resolveDateRangeParams(params, "30d", now);
+  return { from: resolved.from, to: resolved.to };
 }
 
-export function rangeLabel(key: OrderRangeKey): string {
-  return (
-    ORDER_RANGE_OPTIONS.find((option) => option.value === key)?.label ??
-    "All time"
-  );
-}
-
-export function parseOrderFilters(params: SearchParams) {
-  const list = parseListParams(params, {
-    defaultSort: "placedAt",
-    defaultOrder: "desc",
-    pageSize: 25,
-  });
-
-  const status = one(params, "status");
-  const payment = one(params, "payment");
-  const method = one(params, "method");
-  const range = one(params, "range");
-
-  return {
-    ...list,
-    sort: (ORDER_SORT_FIELDS as readonly string[]).includes(list.sort)
-      ? (list.sort as OrderSortField)
-      : ("placedAt" as OrderSortField),
-    status: ORDER_STATUSES.includes(status as OrderStatus)
-      ? (status as OrderStatus)
-      : undefined,
-    payment: PAYMENT_STATUSES.includes(payment as PaymentStatus)
-      ? (payment as PaymentStatus)
-      : undefined,
-    method: PAYMENT_METHODS.includes(method as PaymentMethod)
-      ? (method as PaymentMethod)
-      : undefined,
-    range: ORDER_RANGE_OPTIONS.some((option) => option.value === range)
-      ? (range as OrderRangeKey)
-      : ("all" as OrderRangeKey),
-  };
-}
-
-export type OrderFilters = ReturnType<typeof parseOrderFilters>;
-
-/**
- * `ignore` drops one facet from the where clause so that facet's own counts
- * stay visible after it is selected - otherwise picking "Shipped" would show
- * every other status as zero and there would be no way to see what you are
- * switching to.
- */
-function whereFrom(
-  filters: OrderFilters,
-  ignore?: "status" | "payment" | "method",
+export function buildOrderWhere(
+  filters: OrderListFilters,
+  q: string,
+  options: { includeStatus?: boolean } = {},
 ): Prisma.OrderWhereInput {
-  const range = resolveOrderRange(filters.range);
+  const includeStatus = options.includeStatus ?? true;
   const where: Prisma.OrderWhereInput = {};
+  const and: Prisma.OrderWhereInput[] = [];
 
+  if (includeStatus && filters.status) where.status = filters.status;
+  if (filters.payment) where.paymentStatus = filters.payment;
+  if (filters.method) where.paymentMethod = filters.method;
+  if (filters.source) where.source = filters.source;
+  if (filters.customerId) where.customerId = filters.customerId;
+  if (filters.sellerId) and.push({ items: { some: { sellerId: filters.sellerId } } });
+  if (filters.hasReturns) and.push({ returnRequests: { some: {} } });
+  if (filters.hasCustomization) and.push({ items: { some: { NOT: { customization: { equals: Prisma.DbNull } } } } });
+
+  const range = resolveOrderRange(filters);
   if (range) where.placedAt = { gte: range.from, lte: range.to };
-  if (filters.status && ignore !== "status") where.status = filters.status;
-  if (filters.payment && ignore !== "payment") {
-    where.paymentStatus = filters.payment;
-  }
-  if (filters.method && ignore !== "method") {
-    where.paymentMethod = filters.method;
+
+  // Operators type rupees into the amount filter; the column is paise.
+  if (filters.minTotal !== undefined || filters.maxTotal !== undefined) {
+    where.totalPaise = {
+      ...(filters.minTotal !== undefined ? { gte: Math.round(filters.minTotal * 100) } : {}),
+      ...(filters.maxTotal !== undefined ? { lte: Math.round(filters.maxTotal * 100) } : {}),
+    };
   }
 
-  if (filters.q) {
-    where.OR = [
-      { orderNumber: { contains: filters.q, mode: "insensitive" } },
-      { shipFullName: { contains: filters.q, mode: "insensitive" } },
-      { shipEmail: { contains: filters.q, mode: "insensitive" } },
-      { shipPhone: { contains: filters.q, mode: "insensitive" } },
-    ];
+  const term = q.trim();
+  if (term) {
+    and.push({
+      OR: [
+        { orderNumber: { contains: term, mode: "insensitive" } },
+        { guestEmail: { contains: term, mode: "insensitive" } },
+        { customer: { is: { fullName: { contains: term, mode: "insensitive" } } } },
+        { customer: { is: { email: { contains: term, mode: "insensitive" } } } },
+        { customer: { is: { phone: { contains: term, mode: "insensitive" } } } },
+        { addresses: { some: { phone: { contains: term, mode: "insensitive" } } } },
+        { addresses: { some: { fullName: { contains: term, mode: "insensitive" } } } },
+        { shipments: { some: { trackingNumber: { contains: term, mode: "insensitive" } } } },
+        { items: { some: { titleSnapshot: { contains: term, mode: "insensitive" } } } },
+      ],
+    });
   }
 
+  if (and.length) where.AND = and;
   return where;
 }
 
-function countsByKey<K extends string>(
-  rows: Array<{ key: string; count: number }>,
-  keys: readonly K[],
-): Record<K, number> {
-  const output = Object.fromEntries(keys.map((key) => [key, 0])) as Record<
-    K,
-    number
-  >;
-  for (const row of rows) {
-    if ((keys as readonly string[]).includes(row.key)) {
-      output[row.key as K] = row.count;
-    }
-  }
-  return output;
+const SORT_COLUMN: Record<OrderSort, (order: "asc" | "desc") => Prisma.OrderOrderByWithRelationInput> = {
+  number: (order) => ({ orderNumber: order }),
+  placed: (order) => ({ placedAt: order }),
+  customer: (order) => ({ customer: { fullName: order } }),
+  total: (order) => ({ totalPaise: order }),
+  status: (order) => ({ status: order }),
+  payment: (order) => ({ paymentStatus: order }),
+  updated: (order) => ({ updatedAt: order }),
+};
+
+// ---------------------------------------------------------------------------
+// List
+// ---------------------------------------------------------------------------
+
+export type OrderListRow = {
+  id: string;
+  orderNumber: string;
+  placedAt: Date;
+  updatedAt: Date;
+  status: string;
+  paymentStatus: string;
+  paymentMethod: string;
+  source: string;
+  fulfillmentStatus: string;
+  returnStatus: string;
+  totalPaise: number;
+  refundedPaise: number;
+  customerId: string | null;
+  customerName: string;
+  customerEmail: string;
+  isGuest: boolean;
+  itemCount: number;
+  itemThumbs: Array<{ url: string | null; title: string }>;
+  sellerNames: string[];
+  /** C8: status of the most recently updated non-cancelled shipment. */
+  shippingStatus: string | null;
+  trackingNumber: string | null;
+  returnCount: number;
+  hasCustomization: boolean;
+};
+
+const LIST_SELECT = {
+  id: true,
+  orderNumber: true,
+  placedAt: true,
+  updatedAt: true,
+  status: true,
+  paymentStatus: true,
+  paymentMethod: true,
+  source: true,
+  fulfillmentStatus: true,
+  returnStatus: true,
+  totalPaise: true,
+  refundedPaise: true,
+  customerId: true,
+  guestEmail: true,
+  customer: { select: { id: true, fullName: true, email: true } },
+  addresses: { where: { type: "SHIPPING" }, select: { fullName: true, email: true }, take: 1 },
+  items: {
+    where: { status: { not: "CANCELLED" } },
+    select: { id: true, titleSnapshot: true, imageUrl: true, quantity: true, sellerNameSnapshot: true, sellerId: true, customization: true },
+  },
+  shipments: {
+    where: { status: { not: "CANCELLED" } },
+    orderBy: { updatedAt: "desc" },
+    take: 1,
+    select: { status: true, trackingNumber: true },
+  },
+  _count: { select: { returnRequests: true } },
+} satisfies Prisma.OrderSelect;
+
+function toListRow(row: Prisma.OrderGetPayload<{ select: typeof LIST_SELECT }>): OrderListRow {
+  const shipping = row.addresses[0];
+  const sellerNames = [...new Set(row.items.map((item) => item.sellerNameSnapshot ?? (item.sellerId ? "Seller" : "Platform")))];
+  return {
+    id: row.id,
+    orderNumber: row.orderNumber,
+    placedAt: row.placedAt,
+    updatedAt: row.updatedAt,
+    status: row.status,
+    paymentStatus: row.paymentStatus,
+    paymentMethod: row.paymentMethod,
+    source: row.source,
+    fulfillmentStatus: row.fulfillmentStatus,
+    returnStatus: row.returnStatus,
+    totalPaise: row.totalPaise,
+    refundedPaise: row.refundedPaise,
+    customerId: row.customerId,
+    customerName: row.customer?.fullName ?? shipping?.fullName ?? "Guest",
+    customerEmail: row.customer?.email ?? row.guestEmail ?? shipping?.email ?? "",
+    isGuest: row.customerId === null,
+    itemCount: row.items.reduce((sum, item) => sum + item.quantity, 0),
+    itemThumbs: row.items.slice(0, 4).map((item) => ({ url: item.imageUrl, title: item.titleSnapshot })),
+    sellerNames,
+    shippingStatus: row.shipments[0]?.status ?? null,
+    trackingNumber: row.shipments[0]?.trackingNumber ?? null,
+    returnCount: row._count.returnRequests,
+    hasCustomization: row.items.some((item) => item.customization !== null),
+  };
 }
 
-export async function listOrders(params: SearchParams) {
-  const filters = parseOrderFilters(params);
-
-  const where = whereFrom(filters);
-  // KPIs and the status tabs share one base: everything the operator filtered
-  // on except status itself. So the tiles always describe the list on screen.
-  const statusBase = whereFrom(filters, "status");
-
-  const orderBy: Prisma.OrderOrderByWithRelationInput =
-    filters.sort === "totalPaise"
-      ? { totalPaise: filters.order }
-      : { placedAt: filters.order };
-
-  const [
-    rows,
-    total,
-    statusGroups,
-    paymentGroups,
-    methodGroups,
-    scopedTotal,
-    revenue,
-    awaitingConfirmation,
-  ] = await Promise.all([
+export async function listOrders(
+  params: ListParams & { sort: OrderSort },
+  filters: OrderListFilters,
+): Promise<{ rows: OrderListRow[]; meta: PageMeta; total: number }> {
+  const where = buildOrderWhere(filters, params.q);
+  const [total, rows] = await Promise.all([
+    db.order.count({ where }),
     db.order.findMany({
       where,
-      orderBy,
-      skip: filters.skip,
-      take: filters.pageSize,
-      select: {
-        id: true,
-        orderNumber: true,
-        placedAt: true,
-        status: true,
-        paymentStatus: true,
-        paymentMethod: true,
-        totalPaise: true,
-        refundedPaise: true,
-        shipFullName: true,
-        shipCity: true,
-        shipState: true,
-        items: { select: { quantity: true } },
-      },
+      select: LIST_SELECT,
+      orderBy: [SORT_COLUMN[params.sort](params.order), { placedAt: "desc" }],
+      skip: params.skip,
+      take: params.pageSize,
     }),
-    db.order.count({ where }),
-    db.order.groupBy({
-      by: ["status"],
-      where: statusBase,
-      _count: { _all: true },
-    }),
-    db.order.groupBy({
-      by: ["paymentStatus"],
-      where: whereFrom(filters, "payment"),
-      _count: { _all: true },
-    }),
-    db.order.groupBy({
-      by: ["paymentMethod"],
-      where: whereFrom(filters, "method"),
-      _count: { _all: true },
-    }),
-    db.order.count({ where: statusBase }),
+  ]);
+  return { rows: rows.map(toListRow), meta: buildPageMeta(total, params), total };
+}
+
+export type OrderStatusCounts = Record<OrderStatus, number> & { all: number };
+
+/** Counts for the status FilterTabs, honouring every other active filter. */
+export async function orderStatusCounts(filters: OrderListFilters, q: string): Promise<OrderStatusCounts> {
+  const where = buildOrderWhere(filters, q, { includeStatus: false });
+  const grouped = await db.order.groupBy({ by: ["status"], where, _count: { _all: true } });
+  const counts = Object.fromEntries(ORDER_STATUSES.map((status) => [status, 0])) as OrderStatusCounts;
+  counts.all = 0;
+  for (const row of grouped) {
+    counts[row.status as OrderStatus] = row._count._all;
+    counts.all += row._count._all;
+  }
+  return counts;
+}
+
+export type OrderKpis = {
+  todayOrders: number;
+  todayRevenuePaise: number;
+  pending: number;
+  processing: number;
+  shipped: number;
+  awaitingPayment: number;
+};
+
+/**
+ * The strip above the list. "Revenue today" excludes cancelled and failed
+ * orders and nets off refunds (E4), so it agrees with the reports module
+ * instead of quietly telling a different story on the same numbers.
+ */
+export async function orderKpis(now = new Date()): Promise<OrderKpis> {
+  const from = startOfIstDay(now);
+  const to = endOfIstDay(now);
+
+  const [today, pending, processing, shipped, awaitingPayment] = await Promise.all([
     db.order.aggregate({
-      where: { ...statusBase, status: { in: [...REVENUE_STATUSES] } },
+      where: { placedAt: { gte: from, lte: to }, status: { notIn: ["CANCELLED", "FAILED"] } },
+      _count: { _all: true },
       _sum: { totalPaise: true, refundedPaise: true },
-      _count: true,
     }),
-    db.order.count({ where: { ...statusBase, status: "PLACED" } }),
+    db.order.count({ where: { status: "PENDING" } }),
+    db.order.count({ where: { status: { in: ["CONFIRMED", "PROCESSING", "PACKED"] } } }),
+    db.order.count({ where: { status: { in: ["SHIPPED", "OUT_FOR_DELIVERY"] } } }),
+    db.order.count({ where: { paymentStatus: { in: ["PENDING", "AUTHORIZED"] }, status: { notIn: ["CANCELLED", "FAILED"] } } }),
   ]);
 
-  const revenuePaise =
-    (revenue._sum.totalPaise ?? 0) - (revenue._sum.refundedPaise ?? 0);
-  const revenueOrders = revenue._count;
-
   return {
-    filters,
-    meta: buildPageMeta(total, filters),
-    rows: rows.map((row) => ({
-      id: row.id,
+    todayOrders: today._count._all,
+    todayRevenuePaise: (today._sum.totalPaise ?? 0) - (today._sum.refundedPaise ?? 0),
+    pending,
+    processing,
+    shipped,
+    awaitingPayment,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Reference data the screens need
+// ---------------------------------------------------------------------------
+
+export type PartnerOption = { id: string; name: string; code: string; trackingUrlTemplate: string | null };
+
+export async function listShipmentPartners(): Promise<PartnerOption[]> {
+  return db.shippingPartner.findMany({
+    where: { isActive: true },
+    orderBy: [{ position: "asc" }, { name: "asc" }],
+    select: { id: true, name: true, code: true, trackingUrlTemplate: true },
+  });
+}
+
+/** Hydrates an EntityPicker chip from an id already in the URL. */
+export async function getCustomerRef(id: string | undefined): Promise<{ id: string; title: string; subtitle?: string } | null> {
+  if (!id) return null;
+  const row = await db.customer.findUnique({ where: { id }, select: { id: true, fullName: true, email: true } });
+  return row ? { id: row.id, title: row.fullName ?? row.email, subtitle: row.email } : null;
+}
+
+export async function getSellerRef(id: string | undefined): Promise<{ id: string; title: string; subtitle?: string } | null> {
+  if (!id) return null;
+  const row = await db.seller.findUnique({ where: { id }, select: { id: true, displayName: true, city: true } });
+  return row ? { id: row.id, title: row.displayName, subtitle: row.city ?? undefined } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Export paging (§11.28: never findMany without take)
+// ---------------------------------------------------------------------------
+
+export type OrderExportRow = {
+  orderNumber: string;
+  placedAt: Date;
+  status: string;
+  paymentStatus: string;
+  paymentMethod: string;
+  source: string;
+  customerName: string;
+  customerEmail: string;
+  phone: string;
+  city: string;
+  state: string;
+  pinCode: string;
+  items: number;
+  sellers: string;
+  subtotalPaise: number;
+  discountPaise: number;
+  couponDiscountPaise: number;
+  couponCode: string;
+  shippingPaise: number;
+  codFeePaise: number;
+  taxPaise: number;
+  totalPaise: number;
+  refundedPaise: number;
+  shippingStatus: string;
+  trackingNumber: string;
+};
+
+export async function pageOrdersForExport(
+  filters: OrderListFilters,
+  q: string,
+  skip: number,
+  take: number,
+): Promise<OrderExportRow[]> {
+  const rows = await db.order.findMany({
+    where: buildOrderWhere(filters, q),
+    orderBy: { placedAt: "desc" },
+    skip,
+    take,
+    select: {
+      orderNumber: true,
+      placedAt: true,
+      status: true,
+      paymentStatus: true,
+      paymentMethod: true,
+      source: true,
+      guestEmail: true,
+      subtotalPaise: true,
+      discountPaise: true,
+      couponDiscountPaise: true,
+      couponCode: true,
+      shippingPaise: true,
+      codFeePaise: true,
+      taxPaise: true,
+      totalPaise: true,
+      refundedPaise: true,
+      customer: { select: { fullName: true, email: true, phone: true } },
+      addresses: { where: { type: "SHIPPING" }, take: 1, select: { fullName: true, phone: true, city: true, state: true, pinCode: true, email: true } },
+      items: { where: { status: { not: "CANCELLED" } }, select: { quantity: true, sellerNameSnapshot: true } },
+      shipments: { where: { status: { not: "CANCELLED" } }, orderBy: { updatedAt: "desc" }, take: 1, select: { status: true, trackingNumber: true } },
+    },
+  });
+
+  return rows.map((row) => {
+    const address = row.addresses[0];
+    return {
       orderNumber: row.orderNumber,
       placedAt: row.placedAt,
       status: row.status,
       paymentStatus: row.paymentStatus,
       paymentMethod: row.paymentMethod,
+      source: row.source,
+      customerName: row.customer?.fullName ?? address?.fullName ?? "Guest",
+      customerEmail: row.customer?.email ?? row.guestEmail ?? address?.email ?? "",
+      phone: row.customer?.phone ?? address?.phone ?? "",
+      city: address?.city ?? "",
+      state: address?.state ?? "",
+      pinCode: address?.pinCode ?? "",
+      items: row.items.reduce((sum, item) => sum + item.quantity, 0),
+      sellers: [...new Set(row.items.map((item) => item.sellerNameSnapshot ?? "Platform"))].join(" | "),
+      subtotalPaise: row.subtotalPaise,
+      discountPaise: row.discountPaise,
+      couponDiscountPaise: row.couponDiscountPaise,
+      couponCode: row.couponCode ?? "",
+      shippingPaise: row.shippingPaise,
+      codFeePaise: row.codFeePaise,
+      taxPaise: row.taxPaise,
       totalPaise: row.totalPaise,
       refundedPaise: row.refundedPaise,
-      customerName: row.shipFullName,
-      city: row.shipCity,
-      state: row.shipState,
-      lines: row.items.length,
-      units: row.items.reduce((sum, item) => sum + item.quantity, 0),
-    })),
-    statusCounts: countsByKey(
-      statusGroups.map((group) => ({
-        key: group.status,
-        count: group._count._all,
-      })),
-      ORDER_STATUSES,
-    ),
-    paymentCounts: countsByKey(
-      paymentGroups.map((group) => ({
-        key: group.paymentStatus,
-        count: group._count._all,
-      })),
-      PAYMENT_STATUSES,
-    ),
-    methodCounts: countsByKey(
-      methodGroups.map((group) => ({
-        key: group.paymentMethod,
-        count: group._count._all,
-      })),
-      PAYMENT_METHODS,
-    ),
-    kpis: {
-      orders: scopedTotal,
-      revenuePaise,
-      revenueOrders,
-      aovPaise: revenueOrders > 0 ? Math.round(revenuePaise / revenueOrders) : 0,
-      awaitingConfirmation,
-      rangeLabel: rangeLabel(filters.range),
-    },
-  };
+      shippingStatus: row.shipments[0]?.status ?? "",
+      trackingNumber: row.shipments[0]?.trackingNumber ?? "",
+    };
+  });
 }
 
-export type OrderListResult = Awaited<ReturnType<typeof listOrders>>;
-export type OrderListRow = OrderListResult["rows"][number];
+// ---------------------------------------------------------------------------
+// Manual order form: one product, priced and validated the way checkout will
+// ---------------------------------------------------------------------------
 
 /**
- * Accepts either the cuid or the human order number, so pasting "NIYA-17..."
- * into the address bar lands on the right order.
- *
- * Wrapped in cache() so generateMetadata and the page body share one query
- * instead of hitting the database twice per view.
+ * Everything the manual order form needs after an operator picks a product:
+ * the purchasable variants with live availability, and the customisation
+ * options in the same shape the validator uses. The form re-prices through
+ * `previewOrderDraftAction`, so these figures are guidance, not the source of
+ * truth - but showing the operator "3 left" before they type 5 saves a round
+ * trip and a confusing error.
  */
-export const getOrderDetail = cache(async function getOrderDetail(
-  idOrNumber: string,
-) {
-  const order = await db.order.findFirst({
-    where: { OR: [{ id: idOrNumber }, { orderNumber: idOrNumber }] },
-    include: {
-      items: {
-        orderBy: { id: "asc" },
-        include: {
-          product: {
-            select: {
-              id: true,
-              title: true,
-              images: {
-                take: 1,
-                orderBy: { position: "asc" },
-                select: { media: { select: { url: true } } },
-              },
-            },
+export async function getManualOrderProduct(productId: string): Promise<ManualProductInfo | null> {
+  const [product, defaultTaxBps] = await Promise.all([
+    db.product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        deletedAt: true,
+        pricePaise: true,
+        salePricePaise: true,
+        saleStartsAt: true,
+        saleEndsAt: true,
+        taxRateBps: true,
+        minOrderQty: true,
+        maxOrderQty: true,
+        sellerId: true,
+        seller: { select: { displayName: true, status: true, deletedAt: true } },
+        images: { where: { variantId: null }, orderBy: [{ isPrimary: "desc" }, { position: "asc" }], take: 1, select: { media: { select: { url: true, thumbnailUrl: true } } } },
+        variants: {
+          where: { deletedAt: null, isActive: true },
+          orderBy: [{ isDefault: "desc" }, { position: "asc" }],
+          select: {
+            id: true,
+            name: true,
+            sku: true,
+            pricePaise: true,
+            salePricePaise: true,
+            isDefault: true,
+            inventory: { select: { available: true, allowBackorder: true } },
+            attributeValues: { select: { attribute: { select: { name: true } }, value: { select: { label: true } } } },
           },
-          variant: { select: { id: true, name: true, sku: true } },
         },
+        customizationOptions: { where: { isActive: true }, orderBy: { position: "asc" }, select: CUSTOMIZATION_OPTION_SELECT },
       },
-      events: {
-        orderBy: { createdAt: "asc" },
-        include: { actor: { select: { name: true, email: true } } },
-      },
-      customer: {
-        select: {
-          id: true,
-          email: true,
-          fullName: true,
-          phone: true,
-          status: true,
-          createdAt: true,
-        },
-      },
-    },
-  });
+    }),
+    readSettingNumber(undefined, "tax.default_bps"),
+  ]);
+  if (!product) return null;
 
-  if (!order) return null;
+  const now = new Date();
+  const sellerBlocked = Boolean(product.sellerId && (!product.seller || product.seller.status !== "ACTIVE" || product.seller.deletedAt));
+  const problem =
+    product.deletedAt || product.status !== "PUBLISHED"
+      ? "This product is not published."
+      : sellerBlocked
+        ? "This product's seller is not active."
+        : product.variants.length === 0
+          ? "This product has no active variant."
+          : null;
 
-  // Checkout on the storefront is anonymous, so plenty of orders have no
-  // Customer row. Falling back to the shipping email still gives an honest
-  // lifetime figure for the person who placed this order.
-  const lifetime = await db.order.aggregate({
-    where: {
-      status: { in: [...REVENUE_STATUSES] },
-      ...(order.customerId
-        ? { customerId: order.customerId }
-        : { shipEmail: order.shipEmail }),
-    },
-    _sum: { totalPaise: true, refundedPaise: true },
-    _count: true,
-  });
+  const image = product.images[0]?.media ?? null;
 
   return {
-    id: order.id,
-    orderNumber: order.orderNumber,
-    status: order.status,
-    paymentStatus: order.paymentStatus,
-    paymentMethod: order.paymentMethod,
-    source: order.source,
-
-    subtotalPaise: order.subtotalPaise,
-    shippingPaise: order.shippingPaise,
-    discountPaise: order.discountPaise,
-    taxPaise: order.taxPaise,
-    totalPaise: order.totalPaise,
-    refundedPaise: order.refundedPaise,
-    discountCode: order.discountCode,
-
-    shipFullName: order.shipFullName,
-    shipEmail: order.shipEmail,
-    shipPhone: order.shipPhone,
-    shipAddress: order.shipAddress,
-    shipCity: order.shipCity,
-    shipState: order.shipState,
-    shipPinCode: order.shipPinCode,
-
-    placedAt: order.placedAt,
-    confirmedAt: order.confirmedAt,
-    shippedAt: order.shippedAt,
-    deliveredAt: order.deliveredAt,
-    cancelledAt: order.cancelledAt,
-    cancelReason: order.cancelReason,
-    legacyDateString: order.legacyDateString,
-
-    customer: order.customer,
-    lifetime: {
-      orders: lifetime._count,
-      valuePaise:
-        (lifetime._sum.totalPaise ?? 0) - (lifetime._sum.refundedPaise ?? 0),
-      matchedBy: order.customerId ? ("customer" as const) : ("email" as const),
-    },
-
-    items: order.items.map((item) => ({
-      id: item.id,
-      productId: item.productId,
-      variantId: item.variantId,
-      title: item.titleSnapshot,
-      variantName: item.variantSnapshot,
-      sku: item.skuSnapshot,
-      // The snapshot wins: the order must render as it was placed even if the
-      // product has since been re-photographed or deleted.
-      imageUrl: item.imageUrl ?? item.product?.images[0]?.media.url ?? null,
-      listPricePaise: item.listPricePaise,
-      unitPricePaise: item.unitPricePaise,
-      quantity: item.quantity,
-      lineTotalPaise: item.lineTotalPaise,
-      productStillExists: Boolean(item.product),
-    })),
-
-    events: order.events.map((event) => ({
-      id: event.id,
-      type: event.type,
-      fromStatus: event.fromStatus,
-      toStatus: event.toStatus,
-      message: event.message,
-      isInternal: event.isInternal,
-      createdAt: event.createdAt,
-      actorName: event.actor?.name ?? event.actor?.email ?? null,
+    id: product.id,
+    title: product.title,
+    imageUrl: image?.thumbnailUrl ?? image?.url ?? null,
+    sellerId: product.sellerId,
+    sellerName: product.seller?.displayName ?? null,
+    minOrderQty: Math.max(1, product.minOrderQty),
+    maxOrderQty: product.maxOrderQty,
+    taxRateBps: product.taxRateBps ?? defaultTaxBps,
+    problem,
+    variants: product.variants.map((variant) => {
+      const listPricePaise = variant.pricePaise ?? product.pricePaise;
+      const salePaise = variant.salePricePaise ?? (variant.pricePaise === null ? product.salePricePaise : null);
+      const onSale = isOnSale({ pricePaise: listPricePaise, salePricePaise: salePaise, saleStartsAt: product.saleStartsAt, saleEndsAt: product.saleEndsAt, now });
+      const options = variant.attributeValues.map((row) => `${row.attribute.name}: ${row.value.label}`).join(" · ");
+      return {
+        id: variant.id,
+        name: variant.name,
+        sku: variant.sku,
+        pricePaise: onSale && salePaise !== null ? salePaise : listPricePaise,
+        listPricePaise,
+        available: variant.inventory?.available ?? 0,
+        allowBackorder: variant.inventory?.allowBackorder ?? false,
+        isDefault: variant.isDefault,
+        optionsLabel: options.length > 0 ? options : null,
+      };
+    }),
+    customizationOptions: product.customizationOptions.map((option) => ({
+      id: option.id,
+      type: option.type,
+      label: option.label,
+      helpText: option.helpText,
+      placeholder: option.placeholder,
+      isRequired: option.isRequired,
+      minLength: option.minLength,
+      maxLength: option.maxLength,
+      maxFiles: option.maxFiles,
+      priceDeltaPaise: option.priceDeltaPaise,
+      choices: parseChoices(option.choices).map((choice) => ({ value: choice.value, label: choice.label ?? choice.value, priceDeltaPaise: choice.priceDeltaPaise ?? 0 })),
+      kind: isFileType(option.type) ? "file" : isChoiceType(option.type) ? "choice" : option.type === "CHECKBOX" ? "boolean" : "text",
+      multiple: option.type === "MULTI_SELECT" || (isFileType(option.type) && (option.maxFiles ?? 1) > 1),
     })),
   };
-});
-
-export type OrderDetail = NonNullable<Awaited<ReturnType<typeof getOrderDetail>>>;
-export type OrderLineItem = OrderDetail["items"][number];
-export type OrderTimelineEvent = OrderDetail["events"][number];
+}

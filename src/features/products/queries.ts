@@ -3,731 +3,549 @@ import "server-only";
 import type { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/db";
-import { stockState, type ProductStatus, type StockState } from "@/lib/enums";
-import { discountPercentage, isOnSale } from "@/lib/money";
-import type { ListParams } from "@/lib/list-params";
+import type { ProductStatus, StockState } from "@/lib/enums";
+import { buildPageMeta, type ListParams, type PageMeta } from "@/lib/list-params";
+import { getSettingBoolean, getSettingNumber, getSettingString } from "@/lib/settings";
 import {
-  resolveProductSort,
-  type ProductFlag,
-  type ProductListFilters,
-  type ProductSort,
-} from "@/features/products/filters";
+  resolveCategoryAttributes,
+  resolveForProduct,
+  type EffectiveAttribute,
+} from "@/features/catalog/attribute-resolution";
+import { buildAttrWhere, parseAttrFilters } from "@/features/catalog/facets";
+import { validateProductForPublish, type PublishProblem } from "@/features/catalog/publish-validation";
+import { getStockSummaryForProduct, type ProductStockSummary } from "@/features/inventory/service";
+
+import { CUSTOMIZATION_OPTION_SELECT, type CustomizationOptionRecord } from "./customization-service";
+import { PRODUCT_FLAG_COLUMNS, resolveProductSort, type ProductListFilters, type ProductSort } from "./filters";
+import { PRODUCT_CORE_SELECT, type ProductCore } from "./internal";
+import { getCategoryOptions, type CategoryOption } from "./reference-queries";
+
+export { getAttributeCatalog, getCategoryOptions, getSellerRef, type AttributeCatalogEntry, type CategoryOption } from "./reference-queries";
 
 /**
- * Read side of the catalogue. Nothing here invents a number: stock is summed
- * from real InventoryItem rows, the discount percentage is computed from the
- * two prices, and "on sale" respects the stored date window.
- *
- * The sort/flag vocabulary these queries accept lives in ./filters, which the
- * Client Component toolbar shares - see the note there.
+ * Read side of the products module, for Server Components and the REST GETs.
+ * Nothing here invents a number: stock comes from InventoryItem rows the
+ * ledger maintains, prices from the service-maintained effective columns.
  */
+
+const LIVE: Prisma.ProductWhereInput = { deletedAt: null };
 
 // ---------------------------------------------------------------------------
-// Shared building blocks
+// List
 // ---------------------------------------------------------------------------
 
-type StockTotals = { available: number; onHand: number; threshold: number };
+export type ProductRow = {
+  id: string;
+  slug: string;
+  title: string;
+  baseSku: string | null;
+  status: string;
+  thumbnailUrl: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  categoryPath: string | null;
+  sellerId: string | null;
+  sellerName: string | null;
+  pricePaise: number;
+  salePricePaise: number | null;
+  effectivePricePaise: number;
+  minVariantPricePaise: number;
+  maxVariantPricePaise: number;
+  promotionPricePaise: number | null;
+  onHand: number;
+  available: number;
+  stockState: StockState;
+  variantCount: number;
+  isFeatured: boolean;
+  isNewArrival: boolean;
+  isBestseller: boolean;
+  isTrending: boolean;
+  isCustomizable: boolean;
+  updatedAt: Date;
+  createdAt: Date;
+};
 
-/**
- * One pass over the 78 inventory rows, keyed by product.
- *
- * Prisma cannot group across a relation, and a product's stock is the sum of
- * its variants' inventory. At this size a single findMany plus a Map is both
- * simpler and faster than a raw aggregate, and it stays dialect-agnostic.
- */
-async function getStockByProduct(): Promise<Map<string, StockTotals>> {
-  const items = await db.inventoryItem.findMany({
-    select: {
-      onHand: true,
-      reserved: true,
-      lowStockThreshold: true,
-      variant: { select: { productId: true } },
-    },
-  });
+export type ProductListResult = { rows: ProductRow[]; total: number; meta: PageMeta };
 
-  const totals = new Map<string, StockTotals>();
+const STOCK_WHERE: Record<NonNullable<ProductListFilters["stock"]>, Prisma.ProductWhereInput> = {
+  in: { variants: { some: { isActive: true, deletedAt: null, inventory: { available: { gt: 0 } } } } },
+  low: { variants: { some: { isActive: true, deletedAt: null, inventory: { stockState: "LOW_STOCK" } } } },
+  out: {
+    variants: { none: { isActive: true, deletedAt: null, inventory: { OR: [{ available: { gt: 0 } }, { allowBackorder: true }] } } },
+  },
+};
 
-  for (const item of items) {
-    const key = item.variant.productId;
-    const current = totals.get(key) ?? {
-      available: 0,
-      onHand: 0,
-      threshold: 0,
-    };
-    current.available += item.onHand - item.reserved;
-    current.onHand += item.onHand;
-    current.threshold += item.lowStockThreshold;
-    totals.set(key, current);
-  }
+/** Every filter except `status`, so the status tabs can count against the rest. */
+async function buildWhere(filters: ProductListFilters, options: { withStatus: boolean }): Promise<Prisma.ProductWhereInput> {
+  const clauses: Prisma.ProductWhereInput[] = [LIVE];
 
-  return totals;
-}
-
-/**
- * "Sale price below list price" compares two columns of the same row, which
- * Prisma's portable filter language cannot express. Rather than drop to
- * dialect-specific SQL, the handful of rows that actually carry a sale price
- * are read and compared in JavaScript, and the resulting id lists are used as
- * ordinary `in` filters.
- */
-async function getSaleFlagIds(): Promise<{
-  badSale: string[];
-  onSale: string[];
-}> {
-  const rows = await db.product.findMany({
-    where: { salePricePaise: { not: null } },
-    select: {
-      id: true,
-      pricePaise: true,
-      salePricePaise: true,
-      saleStartsAt: true,
-      saleEndsAt: true,
-    },
-  });
-
-  const now = new Date();
-
-  return {
-    badSale: rows
-      .filter((row) => (row.salePricePaise ?? 0) >= row.pricePaise)
-      .map((row) => row.id),
-    onSale: rows
-      .filter((row) =>
-        isOnSale({
-          pricePaise: row.pricePaise,
-          salePricePaise: row.salePricePaise,
-          saleStartsAt: row.saleStartsAt,
-          saleEndsAt: row.saleEndsAt,
-          now,
-        }),
-      )
-      .map((row) => row.id),
-  };
-}
-
-/** "none" filters to products with no category, which is a real state. */
-const UNCATEGORISED = "none";
-
-function buildWhere(
-  q: string,
-  filters: ProductListFilters,
-  flags: { badSale: string[]; onSale: string[] },
-): Prisma.ProductWhereInput {
-  const clauses: Prisma.ProductWhereInput[] = [];
-
-  if (q) {
+  if (filters.q) {
     clauses.push({
       OR: [
-        { title: { contains: q, mode: "insensitive" } },
-        { slug: { contains: q, mode: "insensitive" } },
-        { description: { contains: q, mode: "insensitive" } },
+        { title: { contains: filters.q, mode: "insensitive" } },
+        { slug: { contains: filters.q, mode: "insensitive" } },
+        { baseSku: { contains: filters.q, mode: "insensitive" } },
+        { variants: { some: { sku: { contains: filters.q, mode: "insensitive" }, deletedAt: null } } },
       ],
     });
   }
+  if (options.withStatus && filters.status) clauses.push({ status: filters.status });
 
-  if (filters.status) clauses.push({ status: filters.status });
-  if (filters.gender) clauses.push({ gender: filters.gender });
-
-  if (filters.categoryId === UNCATEGORISED) {
+  if (filters.categoryId === "none") {
     clauses.push({ categoryId: null });
   } else if (filters.categoryId) {
-    clauses.push({ categoryId: filters.categoryId });
+    if (filters.includeDescendants) {
+      const category = await db.category.findUnique({ where: { id: filters.categoryId }, select: { path: true } });
+      clauses.push(
+        category
+          ? { OR: [{ categoryId: filters.categoryId }, { categoryPath: category.path }, { categoryPath: { startsWith: `${category.path}/` } }] }
+          : { categoryId: filters.categoryId },
+      );
+    } else {
+      clauses.push({ categoryId: filters.categoryId });
+    }
   }
 
-  if (filters.flag === "no-image") clauses.push({ images: { none: {} } });
-  if (filters.flag === "bad-sale-price") {
-    clauses.push({ id: { in: flags.badSale } });
-  }
-  if (filters.flag === "on-sale") clauses.push({ id: { in: flags.onSale } });
+  if (filters.platformOnly) clauses.push({ sellerId: null });
+  else if (filters.sellerId) clauses.push({ sellerId: filters.sellerId });
 
-  return clauses.length > 0 ? { AND: clauses } : {};
+  if (filters.stock) clauses.push(STOCK_WHERE[filters.stock]);
+
+  if (filters.minPricePaise !== undefined || filters.maxPricePaise !== undefined) {
+    clauses.push({ effectivePricePaise: { gte: filters.minPricePaise, lte: filters.maxPricePaise } });
+  }
+  if (filters.from || filters.to) clauses.push({ createdAt: { gte: filters.from, lte: filters.to } });
+
+  for (const flag of filters.flags) clauses.push({ [PRODUCT_FLAG_COLUMNS[flag]]: true });
+
+  if (Object.keys(filters.attr).length > 0) {
+    // attr[<code>] filters resolve against the selected category's effective
+    // set (or the global set when none is selected), same as the storefront.
+    const effective = await resolveCategoryAttributes(filters.categoryId && filters.categoryId !== "none" ? filters.categoryId : null);
+    const params: Record<string, string> = {};
+    for (const [code, value] of Object.entries(filters.attr)) params[`attr[${code}]`] = value;
+    clauses.push(...buildAttrWhere(parseAttrFilters(params), effective));
+  }
+
+  return { AND: clauses };
 }
 
 const LIST_SELECT = {
   id: true,
   slug: true,
   title: true,
+  baseSku: true,
   status: true,
-  gender: true,
-  isFeatured: true,
+  categoryId: true,
+  sellerId: true,
   pricePaise: true,
   salePricePaise: true,
-  saleStartsAt: true,
-  saleEndsAt: true,
+  effectivePricePaise: true,
+  minVariantPricePaise: true,
+  maxVariantPricePaise: true,
+  promotionPricePaise: true,
+  isFeatured: true,
+  isNewArrival: true,
+  isBestseller: true,
+  isTrending: true,
+  isCustomizable: true,
   updatedAt: true,
-  category: { select: { id: true, name: true } },
-  images: {
-    take: 1,
-    orderBy: { position: "asc" },
-    select: { media: { select: { url: true } } },
-  },
-  _count: { select: { variants: true, images: true } },
+  createdAt: true,
+  category: { select: { name: true } },
+  seller: { select: { displayName: true } },
+  images: { where: { variantId: null }, orderBy: [{ isPrimary: "desc" }, { position: "asc" }], take: 1, select: { media: { select: { thumbnailUrl: true, url: true } } } },
+  _count: { select: { variants: { where: { deletedAt: null } } } },
 } satisfies Prisma.ProductSelect;
 
-export type ProductRow = {
-  id: string;
-  slug: string;
-  title: string;
-  status: string;
-  gender: string;
-  isFeatured: boolean;
-  categoryName: string | null;
-  imageUrl: string | null;
-  pricePaise: number;
-  salePricePaise: number | null;
-  saleStartsAt: Date | null;
-  saleEndsAt: Date | null;
-  discountPercent: number;
-  onSale: boolean;
-  saleIsBroken: boolean;
-  variantCount: number;
-  imageCount: number;
-  available: number;
-  stockState: StockState;
-  updatedAt: Date;
-};
+type ListRecord = Prisma.ProductGetPayload<{ select: typeof LIST_SELECT }>;
 
-function toRow(
-  product: Prisma.ProductGetPayload<{ select: typeof LIST_SELECT }>,
-  stock: Map<string, StockTotals>,
-  now: Date,
-): ProductRow {
-  const totals = stock.get(product.id) ?? {
-    available: 0,
-    onHand: 0,
-    threshold: 0,
-  };
+type StockTotals = { onHand: number; available: number; stockState: StockState };
 
+const STATE_RANK: Record<StockState, number> = { IN_STOCK: 0, LOW_STOCK: 1, BACKORDER: 2, OUT_OF_STOCK: 3 };
+
+/** Stock for a set of products: active, live variants only; best state wins (same rule as the inventory summary). */
+async function stockFor(productIds: readonly string[]): Promise<Map<string, StockTotals>> {
+  if (productIds.length === 0) return new Map();
+  const items = await db.inventoryItem.findMany({
+    where: { variant: { productId: { in: [...productIds] }, isActive: true, deletedAt: null } },
+    select: { onHand: true, available: true, stockState: true, variant: { select: { productId: true } } },
+  });
+  const totals = new Map<string, StockTotals>();
+  for (const item of items) {
+    const key = item.variant.productId;
+    const current = totals.get(key) ?? { onHand: 0, available: 0, stockState: "OUT_OF_STOCK" as StockState };
+    current.onHand += item.onHand;
+    current.available += item.available;
+    const state = item.stockState as StockState;
+    if (STATE_RANK[state] < STATE_RANK[current.stockState]) current.stockState = state;
+    totals.set(key, current);
+  }
+  return totals;
+}
+
+function toRow(record: ListRecord, stock: Map<string, StockTotals>, namePaths: Map<string, string>): ProductRow {
+  const totals = stock.get(record.id) ?? { onHand: 0, available: 0, stockState: "OUT_OF_STOCK" as StockState };
+  const image = record.images[0]?.media;
   return {
-    id: product.id,
-    slug: product.slug,
-    title: product.title,
-    status: product.status,
-    gender: product.gender,
-    isFeatured: product.isFeatured,
-    categoryName: product.category?.name ?? null,
-    imageUrl: product.images[0]?.media.url ?? null,
-    pricePaise: product.pricePaise,
-    salePricePaise: product.salePricePaise,
-    saleStartsAt: product.saleStartsAt,
-    saleEndsAt: product.saleEndsAt,
-    discountPercent: discountPercentage(
-      product.pricePaise,
-      product.salePricePaise,
-    ),
-    onSale: isOnSale({
-      pricePaise: product.pricePaise,
-      salePricePaise: product.salePricePaise,
-      saleStartsAt: product.saleStartsAt,
-      saleEndsAt: product.saleEndsAt,
-      now,
-    }),
-    saleIsBroken:
-      product.salePricePaise !== null &&
-      product.salePricePaise >= product.pricePaise,
-    variantCount: product._count.variants,
-    imageCount: product._count.images,
+    id: record.id,
+    slug: record.slug,
+    title: record.title,
+    baseSku: record.baseSku,
+    status: record.status,
+    thumbnailUrl: image?.thumbnailUrl ?? image?.url ?? null,
+    categoryId: record.categoryId,
+    categoryName: record.category?.name ?? null,
+    categoryPath: record.categoryId ? (namePaths.get(record.categoryId) ?? record.category?.name ?? null) : null,
+    sellerId: record.sellerId,
+    sellerName: record.seller?.displayName ?? null,
+    pricePaise: record.pricePaise,
+    salePricePaise: record.salePricePaise,
+    effectivePricePaise: record.effectivePricePaise,
+    minVariantPricePaise: record.minVariantPricePaise,
+    maxVariantPricePaise: record.maxVariantPricePaise,
+    promotionPricePaise: record.promotionPricePaise,
+    onHand: totals.onHand,
     available: totals.available,
-    // A product is low when its total available stock is at or below the sum
-    // of its variants' own thresholds - the same rule the inventory page uses
-    // per variant, rolled up.
-    stockState: stockState(totals.available, totals.threshold),
-    updatedAt: product.updatedAt,
+    stockState: totals.stockState,
+    variantCount: record._count.variants,
+    isFeatured: record.isFeatured,
+    isNewArrival: record.isNewArrival,
+    isBestseller: record.isBestseller,
+    isTrending: record.isTrending,
+    isCustomizable: record.isCustomizable,
+    updatedAt: record.updatedAt,
+    createdAt: record.createdAt,
   };
 }
 
-// ---------------------------------------------------------------------------
-// Products tab
-// ---------------------------------------------------------------------------
+function orderBy(sort: ProductSort, order: "asc" | "desc"): Prisma.ProductOrderByWithRelationInput[] {
+  switch (sort) {
+    case "title":
+      return [{ title: order }, { id: "asc" }];
+    case "category":
+      return [{ category: { path: order } }, { title: "asc" }];
+    case "seller":
+      return [{ seller: { displayName: order } }, { title: "asc" }];
+    case "price":
+      return [{ effectivePricePaise: order }, { id: "asc" }];
+    case "status":
+      return [{ status: order }, { updatedAt: "desc" }];
+    case "createdAt":
+      return [{ createdAt: order }, { id: "asc" }];
+    default:
+      return [{ updatedAt: order }, { id: "asc" }];
+  }
+}
 
-export type CategoryOption = {
-  id: string;
-  name: string;
-  slug: string;
-  parentId: string | null;
-  parentName: string | null;
-  productCount: number;
-};
-
-export type ProductsTabData = {
-  rows: ProductRow[];
-  total: number;
-  statusCounts: Record<"all" | ProductStatus, number>;
-  categories: CategoryOption[];
-  genders: Array<{ value: string; count: number }>;
-  uncategorisedCount: number;
-};
-
-/**
- * One entry point for the whole Products tab so the shared work - the stock
- * roll-up and the sale-price comparison - happens once per request instead of
- * once per widget.
- */
-export async function getProductsTabData(
-  params: ListParams,
-  filters: ProductListFilters,
-): Promise<ProductsTabData> {
-  const [flags, stock] = await Promise.all([
-    getSaleFlagIds(),
-    getStockByProduct(),
-  ]);
-
-  const where = buildWhere(params.q, filters, flags);
+export async function listProducts(params: ListParams, filters: ProductListFilters): Promise<ProductListResult> {
+  const where = await buildWhere(filters, { withStatus: true });
   const sort = resolveProductSort(params.sort);
-  const now = new Date();
+  const categories = await getCategoryOptions();
+  const namePaths = new Map(categories.map((category) => [category.id, category.namePath]));
 
-  const [total, statusGroups, categories, genderGroups, uncategorisedCount] =
-    await Promise.all([
-      db.product.count({ where }),
-      // Status counts ignore the status filter, otherwise every tab but the
-      // active one would read zero.
-      db.product.groupBy({
-        by: ["status"],
-        where: buildWhere(params.q, { ...filters, status: undefined }, flags),
-        _count: { _all: true },
-      }),
-      db.category.findMany({
-        orderBy: [{ position: "asc" }, { name: "asc" }],
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          parentId: true,
-          parent: { select: { name: true } },
-          _count: { select: { products: true } },
-        },
-      }),
-      db.product.groupBy({ by: ["gender"], _count: { _all: true } }),
-      db.product.count({ where: { categoryId: null } }),
-    ]);
+  const total = await db.product.count({ where });
 
-  let rows: ProductRow[];
-
+  let records: ListRecord[];
   if (sort === "stock") {
-    // Stock lives in a related table and is a sum, so it cannot be an ORDER BY
-    // here. The id list for the current filter is small enough (tens of rows)
-    // to sort in memory and slice; if this catalogue ever reaches thousands of
-    // products, this branch needs a denormalised stock column.
-    const ids = await db.product.findMany({ where, select: { id: true } });
-
+    // Stock is a SUM over a relation, which Prisma cannot ORDER BY. The id list
+    // for one filter is bounded (a few thousand at most) so sorting it in
+    // memory and fetching the page is the honest option; a denormalised stock
+    // column would be the next step if the catalogue grows past that.
+    const ids = (await db.product.findMany({ where, select: { id: true }, take: 10_000 })).map((row) => row.id);
+    const stock = await stockFor(ids);
     const ordered = ids
-      .map((row) => ({
-        id: row.id,
-        available: stock.get(row.id)?.available ?? 0,
-      }))
-      .sort((a, b) =>
-        params.order === "asc"
-          ? a.available - b.available || a.id.localeCompare(b.id)
-          : b.available - a.available || a.id.localeCompare(b.id),
-      )
-      .slice(params.skip, params.skip + params.pageSize)
-      .map((row) => row.id);
-
-    const page = await db.product.findMany({
-      where: { id: { in: ordered } },
-      select: LIST_SELECT,
-    });
-    const byId = new Map(page.map((product) => [product.id, product]));
-
-    rows = ordered.flatMap((id) => {
-      const product = byId.get(id);
-      return product ? [toRow(product, stock, now)] : [];
-    });
+      .sort((a, b) => {
+        const diff = (stock.get(a)?.available ?? 0) - (stock.get(b)?.available ?? 0);
+        return (params.order === "asc" ? diff : -diff) || a.localeCompare(b);
+      })
+      .slice(params.skip, params.skip + params.pageSize);
+    const page = await db.product.findMany({ where: { id: { in: ordered } }, select: LIST_SELECT });
+    const byId = new Map(page.map((row) => [row.id, row]));
+    records = ordered.map((id) => byId.get(id)).filter((row): row is ListRecord => Boolean(row));
   } else {
-    const orderBy: Prisma.ProductOrderByWithRelationInput[] =
-      sort === "title"
-        ? [{ title: params.order }, { id: "asc" }]
-        : sort === "price"
-          ? [{ pricePaise: params.order }, { id: "asc" }]
-          : [{ updatedAt: params.order }, { id: "asc" }];
-
-    const page = await db.product.findMany({
-      where,
-      orderBy,
-      skip: params.skip,
-      take: params.pageSize,
-      select: LIST_SELECT,
-    });
-
-    rows = page.map((product) => toRow(product, stock, now));
+    records = await db.product.findMany({ where, orderBy: orderBy(sort, params.order), skip: params.skip, take: params.pageSize, select: LIST_SELECT });
   }
 
-  const statusCounts = {
-    all: 0,
-    DRAFT: 0,
-    PUBLISHED: 0,
-    ARCHIVED: 0,
-  } as Record<"all" | ProductStatus, number>;
-
-  for (const group of statusGroups) {
-    statusCounts.all += group._count._all;
-    if (group.status in statusCounts) {
-      statusCounts[group.status as ProductStatus] = group._count._all;
-    }
-  }
-
+  const stock = await stockFor(records.map((row) => row.id));
   return {
-    rows,
+    rows: records.map((record) => toRow(record, stock, namePaths)),
     total,
-    statusCounts,
-    categories: categories.map((category) => ({
-      id: category.id,
-      name: category.name,
-      slug: category.slug,
-      parentId: category.parentId,
-      parentName: category.parent?.name ?? null,
-      productCount: category._count.products,
-    })),
-    genders: genderGroups
-      .map((group) => ({ value: group.gender, count: group._count._all }))
-      .sort((a, b) => b.count - a.count),
-    uncategorisedCount,
+    meta: buildPageMeta(total, params),
   };
+}
+
+export type StatusCounts = Record<"all" | ProductStatus, number>;
+
+export async function getStatusCounts(filters: ProductListFilters): Promise<StatusCounts> {
+  const where = await buildWhere(filters, { withStatus: false });
+  const groups = await db.product.groupBy({ by: ["status"], where, _count: { _all: true } });
+  const counts: StatusCounts = { all: 0, DRAFT: 0, PUBLISHED: 0, ARCHIVED: 0 };
+  for (const group of groups) {
+    counts.all += group._count._all;
+    if (group.status in counts) counts[group.status as ProductStatus] = group._count._all;
+  }
+  return counts;
+}
+
+export type ProductKpis = {
+  total: number;
+  published: number;
+  draft: number;
+  archived: number;
+  outOfStock: number;
+  lowStock: number;
+  customizable: number;
+};
+
+/** Whole-catalogue tiles; independent of the list filters so they read as "the store", not "this page". */
+export async function getProductKpis(): Promise<ProductKpis> {
+  const [total, published, draft, archived, customizable, outOfStock, lowStock] = await Promise.all([
+    db.product.count({ where: LIVE }),
+    db.product.count({ where: { ...LIVE, status: "PUBLISHED" } }),
+    db.product.count({ where: { ...LIVE, status: "DRAFT" } }),
+    db.product.count({ where: { ...LIVE, status: "ARCHIVED" } }),
+    db.product.count({ where: { ...LIVE, isCustomizable: true } }),
+    db.product.count({ where: { ...LIVE, status: { not: "ARCHIVED" }, ...STOCK_WHERE.out } }),
+    db.product.count({ where: { ...LIVE, status: { not: "ARCHIVED" }, ...STOCK_WHERE.low } }),
+  ]);
+  return { total, published, draft, archived, outOfStock, lowStock, customizable };
 }
 
 // ---------------------------------------------------------------------------
 // Editor
 // ---------------------------------------------------------------------------
 
-export type EditorVariant = {
-  id: string;
-  name: string;
-  sku: string | null;
-  position: number;
-  isActive: boolean;
-  onHand: number;
-  reserved: number;
-  available: number;
-  lowStockThreshold: number;
-  hasInventory: boolean;
-};
-
 export type EditorImage = {
   id: string;
   mediaId: string;
   url: string;
+  thumbnailUrl: string | null;
   filename: string;
   alt: string | null;
   position: number;
-  variantId: string | null;
-  variantName: string | null;
+  isPrimary: boolean;
 };
 
-export type MediaOption = {
+export type EditorVariant = {
   id: string;
-  url: string;
-  filename: string;
-  folder: string;
-  kind: string;
-  alt: string | null;
-};
-
-export type ProductEditorData = {
-  id: string;
-  slug: string;
-  title: string;
-  description: string;
-  gender: string;
-  categoryId: string | null;
-  status: string;
-  isFeatured: boolean;
-  position: number;
-  pricePaise: number;
+  name: string;
+  optionKey: string | null;
+  sku: string | null;
+  barcode: string | null;
+  pricePaise: number | null;
   salePricePaise: number | null;
-  saleStartsAt: Date | null;
-  saleEndsAt: Date | null;
-  metaTitle: string | null;
-  metaDescription: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  publishedAt: Date | null;
-  orderItemCount: number;
-  reviewCount: number;
-  variants: EditorVariant[];
-  images: EditorImage[];
+  costPaise: number | null;
+  weightGrams: number | null;
+  position: number;
+  isActive: boolean;
+  isDefault: boolean;
+  attributeValues: Array<{ attributeId: string; valueId: string }>;
+  inventory: { onHand: number; reserved: number; available: number; stockState: StockState; lowStockThreshold: number } | null;
+  images: Array<{ id: string; mediaId: string; url: string; thumbnailUrl: string | null }>;
 };
 
-export async function getProductForEditor(
-  id: string,
-): Promise<ProductEditorData | null> {
+export type EditorAttributeValue = {
+  attributeId: string;
+  valueId: string | null;
+  textValue: string | null;
+  numberValue: number | null;
+  boolValue: boolean | null;
+  fromVariants: boolean;
+};
+
+export type OrphanAttribute = {
+  attributeId: string;
+  code: string;
+  name: string;
+  inputType: string;
+  labels: string[];
+  fromVariants: boolean;
+};
+
+export type ActivityEntry = { id: string; action: string; summary: string; actorEmail: string; createdAt: Date };
+
+export type MediaRef = { id: string; url: string; thumbnailUrl: string | null; filename: string };
+
+export type EditorProduct = ProductCore & {
+  tags: string[];
+  metaKeywordList: string[];
+  category: { id: string; name: string; path: string; namePath: string } | null;
+  seller: { id: string; displayName: string; status: string } | null;
+  video: MediaRef | null;
+  ogImage: MediaRef | null;
+  images: EditorImage[];
+  variants: EditorVariant[];
+  customizationOptions: CustomizationOptionRecord[];
+  attributeValues: EditorAttributeValue[];
+  effectiveAttributes: EffectiveAttribute[];
+  orphanAttributes: OrphanAttribute[];
+  publish: { ok: boolean; problems: PublishProblem[] };
+  stock: ProductStockSummary;
+  performance: { orderCount: number; viewCount: number; ratingAvg: number; reviewCount: number; orderItemCount: number };
+  activity: ActivityEntry[];
+};
+
+const mediaRef = (media: { id: string; url: string; thumbnailUrl: string | null; filename: string } | null): MediaRef | null =>
+  media ? { id: media.id, url: media.url, thumbnailUrl: media.thumbnailUrl, filename: media.filename } : null;
+
+export async function getProductForEditor(id: string): Promise<EditorProduct | null> {
   const product = await db.product.findUnique({
     where: { id },
     select: {
-      id: true,
-      slug: true,
-      title: true,
-      description: true,
-      gender: true,
-      categoryId: true,
-      status: true,
-      isFeatured: true,
-      position: true,
-      pricePaise: true,
-      salePricePaise: true,
-      saleStartsAt: true,
-      saleEndsAt: true,
-      metaTitle: true,
-      metaDescription: true,
-      createdAt: true,
-      updatedAt: true,
-      publishedAt: true,
-      _count: { select: { orderItems: true, reviews: true } },
+      ...PRODUCT_CORE_SELECT,
+      orderCount: true,
+      viewCount: true,
+      ratingAvg: true,
+      reviewCount: true,
+      tags: { select: { name: true }, orderBy: { name: "asc" } },
+      category: { select: { id: true, name: true, path: true } },
+      seller: { select: { id: true, displayName: true, status: true } },
+      video: { select: { id: true, url: true, thumbnailUrl: true, filename: true } },
+      ogImage: { select: { id: true, url: true, thumbnailUrl: true, filename: true } },
+      images: {
+        where: { variantId: null },
+        orderBy: [{ position: "asc" }, { id: "asc" }],
+        select: { id: true, mediaId: true, alt: true, position: true, isPrimary: true, media: { select: { url: true, thumbnailUrl: true, filename: true } } },
+      },
       variants: {
-        orderBy: [{ position: "asc" }, { name: "asc" }],
+        where: { deletedAt: null },
+        orderBy: [{ position: "asc" }, { createdAt: "asc" }],
         select: {
           id: true,
           name: true,
+          optionKey: true,
           sku: true,
+          barcode: true,
+          pricePaise: true,
+          salePricePaise: true,
+          costPaise: true,
+          weightGrams: true,
           position: true,
           isActive: true,
-          inventory: {
-            select: {
-              onHand: true,
-              reserved: true,
-              lowStockThreshold: true,
-            },
-          },
+          isDefault: true,
+          attributeValues: { select: { attributeId: true, valueId: true } },
+          inventory: { select: { onHand: true, reserved: true, available: true, stockState: true, lowStockThreshold: true } },
+          images: { orderBy: { position: "asc" }, select: { id: true, mediaId: true, media: { select: { url: true, thumbnailUrl: true } } } },
         },
       },
-      images: {
-        orderBy: [{ position: "asc" }, { id: "asc" }],
+      customizationOptions: { orderBy: [{ position: "asc" }, { id: "asc" }], select: CUSTOMIZATION_OPTION_SELECT },
+      attributeValues: {
         select: {
-          id: true,
-          mediaId: true,
-          alt: true,
-          position: true,
-          variantId: true,
-          variant: { select: { name: true } },
-          media: { select: { url: true, filename: true } },
+          attributeId: true,
+          valueId: true,
+          textValue: true,
+          numberValue: true,
+          boolValue: true,
+          fromVariants: true,
+          attribute: { select: { code: true, name: true, inputType: true } },
+          value: { select: { value: true, label: true } },
         },
       },
+      _count: { select: { orderItems: true } },
     },
   });
+  if (!product || product.deletedAt) return null;
 
-  if (!product) return null;
+  const [effectiveAttributes, publish, stock, activity, categories] = await Promise.all([
+    resolveForProduct(id),
+    validateProductForPublish(undefined, id),
+    getStockSummaryForProduct(id),
+    db.auditLog.findMany({
+      where: { entityType: "product", entityId: id },
+      orderBy: { createdAt: "desc" },
+      take: 40,
+      select: { id: true, action: true, summary: true, actorEmail: true, createdAt: true },
+    }),
+    getCategoryOptions(),
+  ]);
+
+  const effectiveIds = new Set(effectiveAttributes.map((entry) => entry.attribute.id));
+  const orphans = new Map<string, OrphanAttribute>();
+  for (const row of product.attributeValues) {
+    if (effectiveIds.has(row.attributeId)) continue;
+    const current = orphans.get(row.attributeId) ?? {
+      attributeId: row.attributeId,
+      code: row.attribute.code,
+      name: row.attribute.name,
+      inputType: row.attribute.inputType,
+      labels: [],
+      fromVariants: false,
+    };
+    const label =
+      row.value?.label ?? row.value?.value ?? row.textValue ?? (row.numberValue !== null ? String(row.numberValue) : row.boolValue === null ? null : row.boolValue ? "Yes" : "No");
+    if (label) current.labels.push(label);
+    current.fromVariants = current.fromVariants || row.fromVariants;
+    orphans.set(row.attributeId, current);
+  }
+
+  const { tags, orderCount, viewCount, ratingAvg, reviewCount, _count, category, seller, video, ogImage, images, variants, customizationOptions, attributeValues, ...core } = product;
 
   return {
-    id: product.id,
-    slug: product.slug,
-    title: product.title,
-    description: product.description,
-    gender: product.gender,
-    categoryId: product.categoryId,
-    status: product.status,
-    isFeatured: product.isFeatured,
-    position: product.position,
-    pricePaise: product.pricePaise,
-    salePricePaise: product.salePricePaise,
-    saleStartsAt: product.saleStartsAt,
-    saleEndsAt: product.saleEndsAt,
-    metaTitle: product.metaTitle,
-    metaDescription: product.metaDescription,
-    createdAt: product.createdAt,
-    updatedAt: product.updatedAt,
-    publishedAt: product.publishedAt,
-    orderItemCount: product._count.orderItems,
-    reviewCount: product._count.reviews,
-    variants: product.variants.map((variant) => ({
-      id: variant.id,
-      name: variant.name,
-      sku: variant.sku,
-      position: variant.position,
-      isActive: variant.isActive,
-      onHand: variant.inventory?.onHand ?? 0,
-      reserved: variant.inventory?.reserved ?? 0,
-      available:
-        (variant.inventory?.onHand ?? 0) - (variant.inventory?.reserved ?? 0),
-      lowStockThreshold: variant.inventory?.lowStockThreshold ?? 0,
-      hasInventory: variant.inventory !== null,
-    })),
-    images: product.images.map((image) => ({
+    ...core,
+    tags: tags.map((tag) => tag.name),
+    metaKeywordList: (core.metaKeywords ?? "").split(",").map((item) => item.trim()).filter(Boolean),
+    category: category
+      ? { ...category, namePath: categories.find((option) => option.id === category.id)?.namePath ?? category.name }
+      : null,
+    seller,
+    video: mediaRef(video),
+    ogImage: mediaRef(ogImage),
+    images: images.map((image) => ({
       id: image.id,
       mediaId: image.mediaId,
       url: image.media.url,
+      thumbnailUrl: image.media.thumbnailUrl,
       filename: image.media.filename,
       alt: image.alt,
       position: image.position,
-      variantId: image.variantId,
-      variantName: image.variant?.name ?? null,
+      isPrimary: image.isPrimary,
     })),
-  };
-}
-
-export async function getCategoryOptions(): Promise<CategoryOption[]> {
-  const categories = await db.category.findMany({
-    orderBy: [{ position: "asc" }, { name: "asc" }],
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      parentId: true,
-      parent: { select: { name: true } },
-      _count: { select: { products: true } },
-    },
-  });
-
-  return categories.map((category) => ({
-    id: category.id,
-    name: category.name,
-    slug: category.slug,
-    parentId: category.parentId,
-    parentName: category.parent?.name ?? null,
-    productCount: category._count.products,
-  }));
-}
-
-/**
- * The picker over already-imported assets. There is no upload endpoint yet, so
- * this list plus "add by URL" is the entire way an image reaches a product.
- */
-export async function getMediaOptions(take = 60): Promise<MediaOption[]> {
-  const assets = await db.mediaAsset.findMany({
-    orderBy: [{ createdAt: "desc" }],
-    take,
-    select: {
-      id: true,
-      url: true,
-      filename: true,
-      folder: true,
-      kind: true,
-      alt: true,
-    },
-  });
-
-  return assets;
-}
-
-// ---------------------------------------------------------------------------
-// Categories tab
-// ---------------------------------------------------------------------------
-
-export type CategoryNode = {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  parentId: string | null;
-  position: number;
-  isActive: boolean;
-  isFeatured: boolean;
-  directProductCount: number;
-  totalProductCount: number;
-  children: CategoryNode[];
-};
-
-export async function getCategoryTree(): Promise<CategoryNode[]> {
-  const categories = await db.category.findMany({
-    orderBy: [{ position: "asc" }, { name: "asc" }],
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      description: true,
-      parentId: true,
-      position: true,
-      isActive: true,
-      isFeatured: true,
-      _count: { select: { products: true } },
-    },
-  });
-
-  const nodes = new Map<string, CategoryNode>(
-    categories.map((category) => [
-      category.id,
-      {
-        id: category.id,
-        name: category.name,
-        slug: category.slug,
-        description: category.description,
-        parentId: category.parentId,
-        position: category.position,
-        isActive: category.isActive,
-        isFeatured: category.isFeatured,
-        directProductCount: category._count.products,
-        totalProductCount: category._count.products,
-        children: [],
-      },
-    ]),
-  );
-
-  const roots: CategoryNode[] = [];
-
-  for (const node of nodes.values()) {
-    const parent = node.parentId ? nodes.get(node.parentId) : undefined;
-    if (parent) {
-      parent.children.push(node);
-      // Products hang off the child categories, so a parent's real reach is
-      // its own products plus its children's.
-      parent.totalProductCount += node.directProductCount;
-    } else {
-      roots.push(node);
-    }
-  }
-
-  return roots;
-}
-
-// ---------------------------------------------------------------------------
-// Sale tab
-// ---------------------------------------------------------------------------
-
-export type SaleRow = ProductRow & { scheduled: boolean };
-
-export type SaleTabData = {
-  rows: SaleRow[];
-  onSaleCount: number;
-  scheduledCount: number;
-  brokenCount: number;
-  expiredCount: number;
-};
-
-/**
- * The whole catalogue, sale rows first. At 39 products a single table an
- * operator can scan and tick beats a paginated picker.
- */
-export async function getSaleTabData(): Promise<SaleTabData> {
-  const [products, stock] = await Promise.all([
-    db.product.findMany({
-      where: { status: { not: "ARCHIVED" } },
-      orderBy: [{ title: "asc" }],
-      select: LIST_SELECT,
+    variants: variants.map((variant) => ({
+      ...variant,
+      inventory: variant.inventory ? { ...variant.inventory, stockState: variant.inventory.stockState as StockState } : null,
+      images: variant.images.map((image) => ({ id: image.id, mediaId: image.mediaId, url: image.media.url, thumbnailUrl: image.media.thumbnailUrl })),
+    })),
+    customizationOptions,
+    attributeValues: attributeValues.map(({ attribute, value, ...row }) => {
+      void attribute;
+      void value;
+      return row;
     }),
-    getStockByProduct(),
-  ]);
-
-  const now = new Date();
-
-  const rows: SaleRow[] = products
-    .map((product) => {
-      const row = toRow(product, stock, now);
-      return {
-        ...row,
-        scheduled:
-          row.salePricePaise !== null &&
-          !row.onSale &&
-          !row.saleIsBroken &&
-          row.saleStartsAt !== null &&
-          row.saleStartsAt > now,
-      };
-    })
-    .sort((a, b) => {
-      const rank = (row: SaleRow) =>
-        row.saleIsBroken ? 0 : row.onSale ? 1 : row.salePricePaise !== null ? 2 : 3;
-      return rank(a) - rank(b) || a.title.localeCompare(b.title);
-    });
-
-  return {
-    rows,
-    onSaleCount: rows.filter((row) => row.onSale).length,
-    scheduledCount: rows.filter((row) => row.scheduled).length,
-    brokenCount: rows.filter((row) => row.saleIsBroken).length,
-    expiredCount: rows.filter(
-      (row) =>
-        row.salePricePaise !== null &&
-        !row.onSale &&
-        !row.saleIsBroken &&
-        row.saleEndsAt !== null &&
-        row.saleEndsAt < now,
-    ).length,
+    effectiveAttributes,
+    orphanAttributes: [...orphans.values()],
+    publish,
+    stock,
+    performance: { orderCount, viewCount, ratingAvg, reviewCount, orderItemCount: _count.orderItems },
+    activity,
   };
+}
+
+export type EditorBootstrap = {
+  categories: CategoryOption[];
+  tagSuggestions: string[];
+  defaultTaxBps: number;
+  storefrontBaseUrl: string;
+  previewEnabled: boolean;
+};
+
+/** Reference data both editor pages need; cheap enough to load on every render. */
+export async function getEditorBootstrap(): Promise<EditorBootstrap> {
+  const [categories, tags, defaultTaxBps, storefrontBaseUrl, previewEnabled] = await Promise.all([
+    getCategoryOptions(),
+    db.tag.findMany({ orderBy: { name: "asc" }, take: 300, select: { name: true } }),
+    getSettingNumber("tax.default_bps"),
+    getSettingString("storefront.base_url"),
+    getSettingBoolean("storefront.preview_enabled"),
+  ]);
+  return { categories, tagSuggestions: tags.map((tag) => tag.name), defaultTaxBps, storefrontBaseUrl, previewEnabled };
+}
+
+/** Effective attribute set for the category the operator just picked (before saving). */
+export async function getEffectiveAttributes(categoryId: string | null): Promise<EffectiveAttribute[]> {
+  return resolveCategoryAttributes(categoryId);
+}
+
+/** REST detail: the editor payload minus the derived helpers other clients recompute themselves. */
+export async function getProductDetail(id: string) {
+  return getProductForEditor(id);
 }

@@ -1,5 +1,7 @@
 import type { z } from "zod";
 
+import { isApiError } from "@/lib/api/errors";
+
 /**
  * The one shape every Server Action returns.
  *
@@ -61,6 +63,13 @@ export async function runAction<T>(
         (error as { digest: string }).digest === "NEXT_NOT_FOUND")
     ) {
       throw error;
+    }
+
+    // Guards and services throw ApiError (401/403/404/409/422 ...) with a
+    // sentence written for the operator, so it goes straight to the form
+    // (blueprint §14.D10). Field details survive as fieldErrors.
+    if (isApiError(error)) {
+      return fail(error.message, error.details);
     }
 
     console.error("ACTION FAILED", error);

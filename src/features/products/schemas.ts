@@ -1,394 +1,512 @@
 import { z } from "zod";
 
-import { productStatusSchema } from "@/lib/enums";
-import { rupeesToPaise } from "@/lib/money";
+import {
+  BULK_PRODUCT_OPS,
+  CHOICE_CUSTOMIZATION_TYPES,
+  FILE_CUSTOMIZATION_TYPES,
+  PRODUCT_STATUSES,
+  bulkProductOpSchema,
+  customizationOptionTypeSchema,
+  productStatusSchema,
+  type BulkProductOp,
+  type CustomizationOptionType,
+  type ProductStatus,
+} from "@/lib/enums";
+import {
+  bpsSchema,
+  optionalTextSchema,
+  optionalUrlSchema,
+  paiseSchema,
+  slugSchema,
+  textSchema,
+} from "@/lib/validation";
 
 /**
- * Every write path into the catalogue passes through this file.
+ * Every write into the catalogue passes through one of these schemas
+ * (blueprint §14.F). Client components import the same file so a field that
+ * is invalid on the server is also flagged in the browser with the same
+ * sentence.
  *
- * Money enters as RUPEES because that is what an operator types, and leaves
- * every schema below as PAISE because that is the only unit the database
- * knows. The conversion happens here rather than in each action so that it
- * cannot be forgotten in one of them.
+ * Ids are opaque strings rather than cuids: the demo seed uses readable ids
+ * ("demo_prod_007") that the admin must be able to address.
+ *
+ * No Next imports - the seed, the worker and the check script validate with
+ * these too.
  */
+
+export { BULK_PRODUCT_OPS, PRODUCT_STATUSES, bulkProductOpSchema, productStatusSchema };
+export type { BulkProductOp, ProductStatus };
 
 // ---------------------------------------------------------------------------
 // Primitives
 // ---------------------------------------------------------------------------
 
-/** India has no DST, so an IST wall-clock boundary is a fixed offset. */
-const IST = "+05:30";
-const IST_OFFSET_MS = (5 * 60 + 30) * 60_000;
+/**
+ * Optional text/URL where an ABSENT key means "no value". The editor always
+ * sends every field ("" → null), but REST clients and scripts omit what they
+ * do not set, and `undefined` must not read as a validation error.
+ */
+const optionalText = (max: number) => z.preprocess((value) => (value === undefined ? null : value), optionalTextSchema(max));
+const optionalUrl = z.preprocess((value) => (value === undefined ? null : value), optionalUrlSchema);
+
+export const looseIdSchema = z
+  .string()
+  .trim()
+  .min(1, "Missing id.")
+  .max(64, "Invalid id.")
+  .regex(/^[A-Za-z0-9_-]+$/, "Invalid id.");
+
+/** "" | undefined -> null so optional FK columns stay NULL. */
+export const nullableIdSchema = z.preprocess(
+  (value) => (value === "" || value === undefined ? null : value),
+  looseIdSchema.nullable(),
+);
+
+/** Optional integer from a form: "", null, undefined -> null. */
+export function nullableIntSchema(options: { min?: number; max?: number; label?: string } = {}) {
+  const label = options.label ?? "This field";
+  let base = z.number({ error: `${label} must be a number.` }).int(`${label} must be a whole number.`);
+  if (options.min !== undefined) base = base.min(options.min, `${label} must be at least ${options.min}.`);
+  if (options.max !== undefined) base = base.max(options.max, `${label} is too large.`);
+  return z.preprocess(
+    (value) => (value === "" || value === undefined || (typeof value === "number" && Number.isNaN(value)) ? null : value),
+    base.nullable(),
+  );
+}
+
+export const nullablePaiseSchema = z.preprocess(
+  (value) => (value === "" || value === undefined ? null : value),
+  paiseSchema.nullable(),
+);
+
+export const nullableBpsSchema = z.preprocess(
+  (value) => (value === "" || value === undefined ? null : value),
+  bpsSchema.nullable(),
+);
+
+/** ISO string | Date | "" | null -> Date | null. */
+export const nullableDateSchema = z.preprocess(
+  (value) => {
+    if (value === "" || value === null || value === undefined) return null;
+    if (value instanceof Date) return value;
+    if (typeof value === "string" || typeof value === "number") {
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? value : parsed;
+    }
+    return value;
+  },
+  z.date({ error: "Enter a valid date." }).nullable(),
+);
+
+export const tagSchema = z.string().trim().min(1).max(60, "Tags are at most 60 characters.");
+
+export const customFieldsSchema = z
+  .record(z.string().trim().min(1).max(80), z.string().max(2000))
+  .refine((record) => Object.keys(record).length <= 50, "At most 50 custom fields.");
+
+// ---------------------------------------------------------------------------
+// Attribute values (A8)
+// ---------------------------------------------------------------------------
 
 /**
- * A date input gives "2026-09-04" with no time. Reading that as UTC midnight
- * would start a sale at 05:30 IST and end it eighteen hours early, so both
- * boundaries are pinned to the IST day the operator actually meant.
+ * One attribute's value(s) on a product. Select types use `valueIds`
+ * (MULTI_SELECT may carry several), scalar types use exactly one of the
+ * typed columns. The service decides `valueKey` from the attribute's input
+ * type; the client never sends it.
  */
-function istStartOfDay(value: string): Date {
-  return new Date(`${value}T00:00:00.000${IST}`);
+export const attributeValueInputSchema = z.object({
+  attributeId: looseIdSchema,
+  valueIds: z.array(looseIdSchema).max(50).optional(),
+  textValue: optionalText(500).optional(),
+  numberValue: z.preprocess(
+    (value) => (value === "" || value === undefined ? null : value),
+    z.number({ error: "Enter a number." }).finite().nullable(),
+  ).optional(),
+  boolValue: z.boolean().nullable().optional(),
+});
+export type AttributeValueInput = z.infer<typeof attributeValueInputSchema>;
+
+export const attributeValuesSchema = z.array(attributeValueInputSchema).max(200);
+
+// ---------------------------------------------------------------------------
+// Product form (Basics, Pricing, Shipping, Flags, SEO, Custom fields)
+// ---------------------------------------------------------------------------
+
+const productFormObject = z
+  .object({
+    title: textSchema(200, "Title"),
+    slug: slugSchema,
+    baseSku: optionalText(64),
+    shortDescription: optionalText(500),
+    description: z.string().max(200_000, "The description is too long.").default(""),
+    categoryId: nullableIdSchema,
+    sellerId: nullableIdSchema,
+    brand: optionalText(120),
+    tags: z.array(tagSchema).max(30, "At most 30 tags.").default([]),
+
+    pricePaise: paiseSchema,
+    salePricePaise: nullablePaiseSchema,
+    saleStartsAt: nullableDateSchema,
+    saleEndsAt: nullableDateSchema,
+    costPaise: nullablePaiseSchema,
+    taxRateBps: nullableBpsSchema,
+    hsnCode: optionalText(16),
+
+    weightGrams: nullableIntSchema({ min: 0, max: 1_000_000, label: "Weight" }),
+    lengthMm: nullableIntSchema({ min: 0, max: 100_000, label: "Length" }),
+    widthMm: nullableIntSchema({ min: 0, max: 100_000, label: "Width" }),
+    heightMm: nullableIntSchema({ min: 0, max: 100_000, label: "Height" }),
+    shippingNote: optionalText(500),
+
+    isFeatured: z.boolean().default(false),
+    isNewArrival: z.boolean().default(false),
+    isBestseller: z.boolean().default(false),
+    isTrending: z.boolean().default(false),
+    minOrderQty: z.number().int().min(1, "Minimum order quantity is at least 1.").max(100_000).default(1),
+    maxOrderQty: nullableIntSchema({ min: 1, max: 1_000_000, label: "Maximum order quantity" }),
+    position: z.number().int().min(0).max(1_000_000).default(0),
+
+    videoUrl: optionalUrl,
+    videoMediaId: nullableIdSchema,
+
+    metaTitle: optionalText(160),
+    metaDescription: optionalText(320),
+    metaKeywords: z.array(tagSchema).max(30).default([]),
+    canonicalUrl: optionalUrl,
+    ogImageMediaId: nullableIdSchema,
+
+    customFields: customFieldsSchema.default({}),
+    attributeValues: attributeValuesSchema.default([]),
+  });
+
+type ProductFormShape = z.output<typeof productFormObject>;
+
+/**
+ * Cross-field rules (blueprint 11.6). Written against a Partial so the same
+ * function serves the full form and the REST PUT patch: a rule only fires
+ * when both sides it compares are present in the payload.
+ */
+function refineProductForm(value: Partial<ProductFormShape>, ctx: z.RefinementCtx): void {
+  if (value.salePricePaise !== null && value.salePricePaise !== undefined && value.pricePaise !== undefined && value.salePricePaise >= value.pricePaise) {
+    ctx.addIssue({ code: "custom", path: ["salePricePaise"], message: "The sale price must be lower than the price." });
+  }
+  if (value.saleStartsAt && value.saleEndsAt && value.saleEndsAt < value.saleStartsAt) {
+    ctx.addIssue({ code: "custom", path: ["saleEndsAt"], message: "The sale must end after it starts." });
+  }
+  if (value.maxOrderQty !== null && value.maxOrderQty !== undefined && value.minOrderQty !== undefined && value.maxOrderQty < value.minOrderQty) {
+    ctx.addIssue({ code: "custom", path: ["maxOrderQty"], message: "Maximum must be at least the minimum quantity." });
+  }
+  if (value.videoUrl && value.videoMediaId) {
+    ctx.addIssue({ code: "custom", path: ["videoUrl"], message: "Use either a video URL or a library video, not both." });
+  }
 }
 
-function istEndOfDay(value: string): Date {
-  return new Date(`${value}T23:59:59.999${IST}`);
-}
+export const productFormSchema = productFormObject.superRefine(refineProductForm);
 
-/** The inverse, for pre-filling an <input type="date">. */
-export function toDateInputValue(
-  date: Date | string | null | undefined,
-): string {
-  if (!date) return "";
-  const parsed = typeof date === "string" ? new Date(date) : date;
-  if (Number.isNaN(parsed.getTime())) return "";
-  return new Date(parsed.getTime() + IST_OFFSET_MS).toISOString().slice(0, 10);
-}
+export type ProductFormInput = z.input<typeof productFormSchema>;
+export type ProductFormValues = z.output<typeof productFormSchema>;
 
-/** Strips the combining marks that NFKD splits off, so "é" slugs as "e".
- *  Built from a string literal so the range stays legible in source. */
-const COMBINING_MARKS = new RegExp("[\\u0300-\\u036f]", "g");
+/** The REST PUT accepts any subset; the editor always sends the full form. (zod v4: partial() must precede the refinement.) */
+export const productPatchSchema = productFormObject.partial().superRefine(refineProductForm);
 
-export function slugify(value: string): string {
-  return value
-    .normalize("NFKD")
-    .replace(COMBINING_MARKS, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-}
+// ---------------------------------------------------------------------------
+// Status, flags, duplicate, delete
+// ---------------------------------------------------------------------------
 
-export const slugSchema = z
-  .string()
-  .trim()
-  .toLowerCase()
-  .min(2, "The slug needs at least two characters.")
-  .max(80, "Keep the slug under 80 characters.")
-  .regex(
-    /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
-    "Lowercase letters, numbers and single hyphens only.",
-  );
+export const setStatusSchema = z.object({ status: productStatusSchema });
 
-/** "" and undefined both mean "not set", which these columns store as NULL. */
-function optionalText(max: number, tooLong: string) {
-  return z
-    .string()
-    .trim()
-    .max(max, tooLong)
-    .optional()
-    .transform((value) => (value && value.length > 0 ? value : null));
-}
+export const flagsSchema = z
+  .object({
+    isFeatured: z.boolean().optional(),
+    isNewArrival: z.boolean().optional(),
+    isBestseller: z.boolean().optional(),
+    isTrending: z.boolean().optional(),
+  })
+  .refine((value) => Object.values(value).some((item) => item !== undefined), "Choose at least one flag.");
+export type FlagsInput = z.infer<typeof flagsSchema>;
 
-const requiredRupees = z
-  .string()
-  .trim()
-  .refine(
-    (value) => value.length > 0 && Number.isFinite(Number(value)),
-    "Enter an amount in rupees.",
-  )
-  .transform((value) => rupeesToPaise(Number(value)))
-  .refine((paise) => paise >= 0, "An amount cannot be negative.")
-  .refine((paise) => paise <= 100_000_000, "That amount looks wrong.");
+// ---------------------------------------------------------------------------
+// Variants (A5)
+// ---------------------------------------------------------------------------
 
-const optionalRupees = z
-  .string()
-  .trim()
-  .optional()
-  .transform((value) =>
-    value && value.length > 0 ? rupeesToPaise(Number(value)) : null,
-  )
-  .refine(
-    (paise) => paise === null || (Number.isFinite(paise) && paise >= 0),
-    "Enter an amount in rupees, or leave it blank.",
-  )
-  .refine(
-    (paise) => paise === null || paise <= 100_000_000,
-    "That amount looks wrong.",
-  );
-
-function optionalDate(edge: "start" | "end") {
-  return z
-    .string()
-    .trim()
-    .optional()
-    .transform((value) =>
-      value && value.length > 0
-        ? edge === "start"
-          ? istStartOfDay(value)
-          : istEndOfDay(value)
-        : null,
+export const variantAxesSchema = z.object({
+  axes: z
+    .array(
+      z.object({
+        attributeId: looseIdSchema,
+        valueIds: z.array(looseIdSchema).min(1, "Choose at least one value.").max(50),
+      }),
     )
-    .refine(
-      (date) => date === null || !Number.isNaN(date.getTime()),
-      "Enter a valid date.",
-    );
-}
+    .min(1, "Choose at least one attribute.")
+    .max(4, "At most four axes."),
+});
+export type VariantAxesInput = z.infer<typeof variantAxesSchema>;
 
-function integerField(max: number) {
-  return z
-    .string()
-    .trim()
-    .optional()
-    .transform((value) => (value && value.length > 0 ? Number(value) : 0))
-    .refine(
-      (value) => Number.isInteger(value) && value >= 0 && value <= max,
-      `Enter a whole number between 0 and ${max}.`,
-    );
-}
+export const variantFieldsSchema = z.object({
+  name: textSchema(120, "Variant name"),
+  sku: optionalText(64),
+  barcode: optionalText(64),
+  pricePaise: nullablePaiseSchema,
+  salePricePaise: nullablePaiseSchema,
+  costPaise: nullablePaiseSchema,
+  weightGrams: nullableIntSchema({ min: 0, max: 1_000_000, label: "Weight" }),
+  isActive: z.boolean().default(true),
+});
 
-const booleanField = z
-  .string()
-  .optional()
-  .transform((value) => value === "true" || value === "on" || value === "1");
+export const createVariantSchema = variantFieldsSchema.extend({
+  attributeValues: z
+    .array(z.object({ attributeId: looseIdSchema, valueId: looseIdSchema }))
+    .max(4)
+    .default([]),
+  openingStock: z.number().int().min(0).max(1_000_000).default(0),
+});
+export type CreateVariantInput = z.input<typeof createVariantSchema>;
+export type CreateVariantValues = z.output<typeof createVariantSchema>;
 
-/** Radix Select cannot hold an empty value, so "none" is the null sentinel. */
-const optionalId = z
-  .string()
-  .trim()
-  .optional()
-  .transform((value) =>
-    value && value.length > 0 && value !== "none" ? value : null,
-  );
+export const updateVariantSchema = variantFieldsSchema.partial().superRefine((value, ctx) => {
+  if (
+    value.pricePaise !== undefined &&
+    value.pricePaise !== null &&
+    value.salePricePaise !== undefined &&
+    value.salePricePaise !== null &&
+    value.salePricePaise >= value.pricePaise
+  ) {
+    ctx.addIssue({ code: "custom", path: ["salePricePaise"], message: "The sale price must be lower than the price." });
+  }
+});
+export type UpdateVariantInput = z.output<typeof updateVariantSchema>;
+
+export const setDefaultVariantSchema = z.object({ variantId: looseIdSchema });
+
+export const variantImagesSchema = z.object({ mediaIds: z.array(looseIdSchema).max(20) });
 
 // ---------------------------------------------------------------------------
-// Product
+// Images
 // ---------------------------------------------------------------------------
 
-export const GENDERS = ["women", "men"] as const;
-export type Gender = (typeof GENDERS)[number];
-export const genderSchema = z.enum(GENDERS);
+export const addImagesSchema = z.object({
+  mediaIds: z.array(looseIdSchema).min(1, "Pick at least one image.").max(30),
+  variantId: nullableIdSchema.optional(),
+});
+export type AddImagesInput = z.output<typeof addImagesSchema>;
 
-export const GENDER_LABELS: Record<Gender, string> = {
-  women: "Women",
-  men: "Men",
+export const updateImageSchema = z
+  .object({
+    alt: optionalText(300).optional(),
+    isPrimary: z.boolean().optional(),
+    variantId: nullableIdSchema.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, "Nothing to update.");
+export type UpdateImageInput = z.output<typeof updateImageSchema>;
+
+export const reorderSchema = z.object({
+  orderedIds: z.array(looseIdSchema).min(1).max(200),
+});
+export type ReorderInput = z.infer<typeof reorderSchema>;
+
+export const videoSchema = z
+  .object({ videoUrl: optionalUrl, videoMediaId: nullableIdSchema })
+  .refine((value) => !(value.videoUrl && value.videoMediaId), "Use either a video URL or a library video, not both.");
+
+// ---------------------------------------------------------------------------
+// Customisation options (§4.2, §11.9)
+// ---------------------------------------------------------------------------
+
+export const CUSTOMIZATION_IMAGE_MIMES = ["image/jpeg", "image/png", "image/webp"] as const;
+
+export const customizationChoiceSchema = z.object({
+  value: z.string().trim().min(1, "Choice value is required.").max(80),
+  label: z.string().trim().min(1, "Choice label is required.").max(120),
+  priceDeltaPaise: z.number().int().min(-2_147_483_647).max(2_147_483_647).default(0),
+  imageUrl: optionalUrl,
+});
+export type CustomizationChoice = z.output<typeof customizationChoiceSchema>;
+
+export const customizationOptionSchema = z
+  .object({
+    type: customizationOptionTypeSchema,
+    label: textSchema(120, "Label"),
+    helpText: optionalText(300),
+    placeholder: optionalText(120),
+    isRequired: z.boolean().default(false),
+    minLength: nullableIntSchema({ min: 0, max: 5000, label: "Minimum length" }),
+    maxLength: nullableIntSchema({ min: 1, max: 5000, label: "Maximum length" }),
+    maxFiles: nullableIntSchema({ min: 1, max: 10, label: "Maximum files" }),
+    allowedMimeTypes: z.array(z.enum(CUSTOMIZATION_IMAGE_MIMES)).max(3).default([]),
+    choices: z.array(customizationChoiceSchema).max(100).default([]),
+    priceDeltaPaise: z.number().int().min(-2_147_483_647).max(2_147_483_647).default(0),
+    isActive: z.boolean().default(true),
+  })
+  .superRefine((value, ctx) => {
+    if (value.minLength !== null && value.maxLength !== null && value.maxLength < value.minLength) {
+      ctx.addIssue({ code: "custom", path: ["maxLength"], message: "Maximum length must be at least the minimum." });
+    }
+    if (isChoiceType(value.type)) {
+      if (value.choices.length === 0) {
+        ctx.addIssue({ code: "custom", path: ["choices"], message: "Add at least one choice." });
+      }
+      const seen = new Set<string>();
+      for (const [index, choice] of value.choices.entries()) {
+        if (seen.has(choice.value)) {
+          ctx.addIssue({ code: "custom", path: ["choices", index, "value"], message: "Choice values must be unique." });
+        }
+        seen.add(choice.value);
+      }
+    }
+  });
+export type CustomizationOptionInput = z.input<typeof customizationOptionSchema>;
+export type CustomizationOptionValues = z.output<typeof customizationOptionSchema>;
+
+export const customizationOptionPatchSchema = z
+  .object({
+    type: customizationOptionTypeSchema.optional(),
+    label: textSchema(120, "Label").optional(),
+    helpText: optionalText(300).optional(),
+    placeholder: optionalText(120).optional(),
+    isRequired: z.boolean().optional(),
+    minLength: nullableIntSchema({ min: 0, max: 5000, label: "Minimum length" }).optional(),
+    maxLength: nullableIntSchema({ min: 1, max: 5000, label: "Maximum length" }).optional(),
+    maxFiles: nullableIntSchema({ min: 1, max: 10, label: "Maximum files" }).optional(),
+    allowedMimeTypes: z.array(z.enum(CUSTOMIZATION_IMAGE_MIMES)).max(3).optional(),
+    choices: z.array(customizationChoiceSchema).max(100).optional(),
+    priceDeltaPaise: z.number().int().min(-2_147_483_647).max(2_147_483_647).optional(),
+    isActive: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, "Nothing to update.");
+export type CustomizationOptionPatch = z.output<typeof customizationOptionPatchSchema>;
+
+export function isChoiceType(type: CustomizationOptionType | string): boolean {
+  return (CHOICE_CUSTOMIZATION_TYPES as readonly string[]).includes(type);
+}
+
+export function isFileType(type: CustomizationOptionType | string): boolean {
+  return (FILE_CUSTOMIZATION_TYPES as readonly string[]).includes(type);
+}
+
+/** Option types whose answer is free text (min/max length apply). */
+export function isTextType(type: CustomizationOptionType | string): boolean {
+  return ["TEXT", "NAME", "MESSAGE", "ENGRAVING", "INSTRUCTIONS"].includes(type);
+}
+
+// ---------------------------------------------------------------------------
+// Bulk operations (A7)
+// ---------------------------------------------------------------------------
+
+export const BULK_MAX_IDS = 500;
+
+export const PRICE_ADJUST_MODES = ["PERCENT", "FIXED", "SET"] as const;
+export type PriceAdjustMode = (typeof PRICE_ADJUST_MODES)[number];
+
+const bulkIds = z
+  .array(looseIdSchema)
+  .min(1, "Select at least one product.")
+  .max(BULK_MAX_IDS, `At most ${BULK_MAX_IDS} products per bulk action.`);
+
+export const bulkOperationSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("DELETE") }),
+  z.object({ op: z.literal("PUBLISH") }),
+  z.object({ op: z.literal("UNPUBLISH") }),
+  z.object({ op: z.literal("ARCHIVE") }),
+  z.object({ op: z.literal("SET_CATEGORY"), categoryId: looseIdSchema }),
+  z.object({
+    op: z.literal("ADJUST_PRICE"),
+    mode: z.enum(PRICE_ADJUST_MODES),
+    /** PERCENT: whole or fractional percent (−90..1000); FIXED/SET: paise. */
+    value: z.number().finite(),
+  }),
+  z.object({
+    op: z.literal("SET_STOCK"),
+    onHand: z.number().int().min(0).max(1_000_000),
+    reason: z.string().trim().min(1, "Give a reason for the ledger.").max(200),
+  }),
+  z.object({
+    op: z.literal("SET_ATTRIBUTE"),
+    attributeId: looseIdSchema,
+    mode: z.enum(["set", "add", "remove"]).default("set"),
+    valueId: looseIdSchema.optional(),
+    textValue: z.string().trim().max(500).optional(),
+    numberValue: z.number().finite().optional(),
+    boolValue: z.boolean().optional(),
+  }),
+  z.object({
+    op: z.literal("SET_FLAGS"),
+    isFeatured: z.boolean().optional(),
+    isNewArrival: z.boolean().optional(),
+    isBestseller: z.boolean().optional(),
+    isTrending: z.boolean().optional(),
+  }),
+]);
+export type BulkOperation = z.output<typeof bulkOperationSchema>;
+
+export const bulkRequestSchema = z.object({ ids: bulkIds }).and(bulkOperationSchema).superRefine((value, ctx) => {
+  if (value.op === "ADJUST_PRICE") {
+    if (value.mode === "PERCENT" && (value.value < -90 || value.value > 1000)) {
+      ctx.addIssue({ code: "custom", path: ["value"], message: "Percent must be between −90 and 1000." });
+    }
+    if (value.mode !== "PERCENT" && (!Number.isInteger(value.value) || Math.abs(value.value) > 2_147_483_647)) {
+      ctx.addIssue({ code: "custom", path: ["value"], message: "Enter a whole amount." });
+    }
+    if (value.mode === "SET" && value.value <= 0) {
+      ctx.addIssue({ code: "custom", path: ["value"], message: "The new price must be greater than zero." });
+    }
+  }
+  if (value.op === "SET_FLAGS") {
+    const { isFeatured, isNewArrival, isBestseller, isTrending } = value;
+    if ([isFeatured, isNewArrival, isBestseller, isTrending].every((flag) => flag === undefined)) {
+      ctx.addIssue({ code: "custom", path: ["isFeatured"], message: "Choose at least one flag." });
+    }
+  }
+  if (value.op === "SET_ATTRIBUTE") {
+    const provided = [value.valueId, value.textValue, value.numberValue, value.boolValue].filter((item) => item !== undefined);
+    if (value.mode !== "remove" && provided.length !== 1) {
+      ctx.addIssue({ code: "custom", path: ["valueId"], message: "Provide exactly one value." });
+    }
+  }
+});
+export type BulkRequest = z.output<typeof bulkRequestSchema>;
+
+/** Which permission each bulk op needs on top of products.bulk (A7). */
+export const BULK_OP_PERMISSION: Record<BulkProductOp, string> = {
+  DELETE: "products.delete",
+  PUBLISH: "products.publish",
+  UNPUBLISH: "products.publish",
+  ARCHIVE: "products.publish",
+  SET_CATEGORY: "products.edit",
+  ADJUST_PRICE: "products.edit",
+  SET_STOCK: "inventory.adjust",
+  SET_ATTRIBUTE: "products.edit",
+  SET_FLAGS: "products.edit",
 };
 
-/**
- * A sale price at or above the list price is NOT rejected here.
- *
- * Products imported from the storefront are already in that state, and an
- * import that cannot be re-saved is an import an operator cannot fix. The
- * condition surfaces as an inline warning in the editor and as a flagged row
- * on the Sale tab instead of a blocked save.
- */
-export const productFormSchema = z
-  .object({
-    title: z
-      .string()
-      .trim()
-      .min(2, "Give the product a title.")
-      .max(140, "Keep the title under 140 characters."),
-    slug: slugSchema,
-    description: z
-      .string()
-      .trim()
-      .max(8000, "That description is too long to store.")
-      .optional()
-      .transform((value) => value ?? ""),
-    gender: genderSchema,
-    categoryId: optionalId,
-    status: productStatusSchema,
-    isFeatured: booleanField,
-    position: integerField(9999),
-    pricePaise: requiredRupees,
-    salePricePaise: optionalRupees,
-    saleStartsAt: optionalDate("start"),
-    saleEndsAt: optionalDate("end"),
-    metaTitle: optionalText(160, "Keep the meta title under 160 characters."),
-    metaDescription: optionalText(
-      400,
-      "Keep the meta description under 400 characters.",
-    ),
-  })
-  .refine(
-    (value) =>
-      !value.saleStartsAt ||
-      !value.saleEndsAt ||
-      value.saleEndsAt > value.saleStartsAt,
-    { message: "The sale must end after it starts.", path: ["saleEndsAt"] },
-  );
+export const BULK_OP_LABELS: Record<BulkProductOp, string> = {
+  DELETE: "Delete",
+  PUBLISH: "Publish",
+  UNPUBLISH: "Unpublish",
+  ARCHIVE: "Archive",
+  SET_CATEGORY: "Set category",
+  ADJUST_PRICE: "Adjust price",
+  SET_STOCK: "Set stock",
+  SET_ATTRIBUTE: "Set attribute",
+  SET_FLAGS: "Set flags",
+};
 
-export type ProductFormInput = z.infer<typeof productFormSchema>;
+// ---------------------------------------------------------------------------
+// Attribute CSV import (A7)
+// ---------------------------------------------------------------------------
 
-/**
- * Creating a product may also create its first colourway, because a product
- * with no variant has nothing to sell and no inventory row to sell it from.
- */
-export const firstVariantSchema = z.object({
-  firstVariantName: optionalText(80, "Keep the colourway name short."),
-  firstVariantSku: optionalText(64, "Keep the SKU under 64 characters."),
+export const attributeImportSchema = z.object({
+  categoryId: looseIdSchema,
+  csv: z.string().min(1, "The CSV is empty.").max(5_000_000, "The CSV is too large (5 MB max)."),
+  createValues: z.boolean().default(false),
+  /** false = validation report only. */
+  apply: z.boolean().default(false),
 });
+export type AttributeImportInput = z.output<typeof attributeImportSchema>;
 
 // ---------------------------------------------------------------------------
-// Variants
+// Preview
 // ---------------------------------------------------------------------------
 
-export const variantInputSchema = z.object({
-  id: z.string().trim().min(1).optional(),
-  productId: z.string().trim().min(1, "Missing product."),
-  name: z
-    .string()
-    .trim()
-    .min(1, "Name the colourway.")
-    .max(80, "Keep the name under 80 characters."),
-  sku: optionalText(64, "Keep the SKU under 64 characters."),
-  position: z.number().int("Position must be a whole number.").min(0).max(999),
-  isActive: z.boolean(),
+export const previewTokenSchema = z.object({
+  ttlSeconds: z.number().int().min(60).max(3600).optional(),
 });
-
-export type VariantInput = z.input<typeof variantInputSchema>;
-
-// ---------------------------------------------------------------------------
-// Media
-// ---------------------------------------------------------------------------
-
-const assetUrlSchema = z
-  .string()
-  .trim()
-  .min(1, "Paste an image URL or a storefront path.")
-  .max(1000, "That URL is too long.")
-  .refine(
-    (value) => value.startsWith("/") || /^https?:\/\//i.test(value),
-    "Use a full https:// URL, or a path beginning with /.",
-  );
-
-export const addImageSchema = z.object({
-  productId: z.string().trim().min(1, "Missing product."),
-  url: assetUrlSchema,
-  alt: optionalText(300, "Keep the alt text under 300 characters."),
-  variantId: z
-    .string()
-    .trim()
-    .nullish()
-    .transform((value) => (value && value !== "none" ? value : null)),
-});
-
-export type AddImageInput = z.input<typeof addImageSchema>;
-
-export const updateImageSchema = z.object({
-  id: z.string().trim().min(1),
-  alt: optionalText(300, "Keep the alt text under 300 characters."),
-  position: z.number().int().min(0).max(999),
-});
-
-export type UpdateImageInput = z.input<typeof updateImageSchema>;
-
-// ---------------------------------------------------------------------------
-// Categories
-// ---------------------------------------------------------------------------
-
-export const categoryInputSchema = z.object({
-  id: z.string().trim().min(1).optional(),
-  name: z
-    .string()
-    .trim()
-    .min(2, "Give the category a name.")
-    .max(80, "Keep the name under 80 characters."),
-  slug: slugSchema,
-  parentId: z
-    .string()
-    .trim()
-    .nullish()
-    .transform((value) => (value && value !== "none" ? value : null)),
-  description: optionalText(500, "Keep the description under 500 characters."),
-  position: z.number().int().min(0).max(999),
-  isActive: z.boolean(),
-  isFeatured: z.boolean(),
-});
-
-export type CategoryInput = z.input<typeof categoryInputSchema>;
-
-// ---------------------------------------------------------------------------
-// Bulk operations
-// ---------------------------------------------------------------------------
-
-const productIds = z
-  .array(z.string().trim().min(1))
-  .min(1, "Select at least one product.")
-  .max(500, "That is more products than this store has.");
-
-export const SALE_MODES = ["PERCENT", "FIXED"] as const;
-export type SaleMode = (typeof SALE_MODES)[number];
-
-export const bulkSaleSchema = z
-  .object({
-    productIds,
-    mode: z.enum(SALE_MODES),
-    /** Percent points when mode is PERCENT, rupees when it is FIXED. */
-    value: z.number().finite("Enter a number."),
-    startsAt: z
-      .string()
-      .trim()
-      .nullish()
-      .transform((value) => (value ? istStartOfDay(value) : null)),
-    endsAt: z
-      .string()
-      .trim()
-      .nullish()
-      .transform((value) => (value ? istEndOfDay(value) : null)),
-  })
-  .refine(
-    (input) =>
-      input.mode !== "PERCENT" || (input.value >= 1 && input.value <= 95),
-    { message: "Enter a discount between 1% and 95%.", path: ["value"] },
-  )
-  .refine((input) => input.mode !== "FIXED" || input.value > 0, {
-    message: "Enter a sale price in rupees.",
-    path: ["value"],
-  })
-  .refine(
-    (input) => !input.startsAt || !input.endsAt || input.endsAt > input.startsAt,
-    { message: "The sale must end after it starts.", path: ["endsAt"] },
-  );
-
-export type BulkSaleInput = z.input<typeof bulkSaleSchema>;
-
-export const bulkStatusSchema = z.object({
-  productIds,
-  status: productStatusSchema,
-});
-
-export type BulkStatusInput = z.input<typeof bulkStatusSchema>;
-
-export const productIdsSchema = z.object({ productIds });
-
-// ---------------------------------------------------------------------------
-// FormData readers
-//
-// The product editor posts a plain FormData. Reading it in one place keeps the
-// "" versus undefined versus null distinction out of every action.
-// ---------------------------------------------------------------------------
-
-export function formValue(formData: FormData, key: string): string | undefined {
-  const raw = formData.get(key);
-  if (typeof raw !== "string") return undefined;
-  const trimmed = raw.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-export function readProductForm(formData: FormData) {
-  return productFormSchema.safeParse({
-    title: formValue(formData, "title"),
-    slug: formValue(formData, "slug"),
-    description: formValue(formData, "description"),
-    gender: formValue(formData, "gender"),
-    categoryId: formValue(formData, "categoryId"),
-    status: formValue(formData, "status"),
-    isFeatured: formValue(formData, "isFeatured"),
-    position: formValue(formData, "position"),
-    // An empty price must reach the schema as "" so it fails with "Enter an
-    // amount in rupees" rather than silently becoming zero.
-    pricePaise: formValue(formData, "price") ?? "",
-    salePricePaise: formValue(formData, "salePrice"),
-    saleStartsAt: formValue(formData, "saleStartsAt"),
-    saleEndsAt: formValue(formData, "saleEndsAt"),
-    metaTitle: formValue(formData, "metaTitle"),
-    metaDescription: formValue(formData, "metaDescription"),
-  });
-}
-
-export function readFirstVariant(formData: FormData) {
-  return firstVariantSchema.safeParse({
-    firstVariantName: formValue(formData, "firstVariantName"),
-    firstVariantSku: formValue(formData, "firstVariantSku"),
-  });
-}

@@ -1,21 +1,12 @@
-import { db } from "@/lib/db";
-import { productInclude, toPublicCategories } from "@/lib/serializers/public";
-import { publicJson } from "../_lib/response";
+import { handleOptions, publicCachedJson, withPublicApi } from "@/lib/api/public";
+import { getCategoryTreeCached } from "@/features/storefront/cached";
 
 /**
- * GET /api/v1/categories
- *
- * Replaces getCategories(). The storefront derives its category facets from the
- * product list and expects { gender, name, filter, image, count } - so this
- * endpoint derives them the same way rather than returning the Category tree.
- * Returning the tree instead would be tidier and would break CategorySection.jsx.
+ * GET /api/v1/categories - the full active category tree with rolled-up
+ * product counts (blueprint §5.3, §14.A9). Anonymous and identical for every
+ * caller, so it is served from the tagged server cache with the public CDN
+ * policy. See docs/PUBLIC_API.md.
  */
-export async function GET() {
-  const products = await db.product.findMany({
-    where: { status: "PUBLISHED", deletedAt: null },
-    orderBy: { position: "asc" },
-    include: productInclude,
-  });
+export const GET = withPublicApi(async () => publicCachedJson(await getCategoryTreeCached()), { cached: true });
 
-  return publicJson(toPublicCategories(products));
-}
+export const OPTIONS = handleOptions;

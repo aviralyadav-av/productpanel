@@ -22,7 +22,9 @@ export function PageHeader({
     <div className={cn("flex flex-col gap-3", className)}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
-          <h1 className="truncate text-lg font-semibold tracking-tight">
+          {/* Wraps on a phone (a truncated title hides the one thing the
+              operator came for); one line from `sm` up. */}
+          <h1 className="text-lg font-semibold tracking-tight max-sm:break-words sm:truncate">
             {title}
           </h1>
           {description ? (
@@ -32,7 +34,10 @@ export function PageHeader({
           ) : null}
         </div>
         {actions ? (
-          <div className="flex shrink-0 items-center gap-2">{actions}</div>
+          // Four actions in a `shrink-0` row pushed detail pages past the
+          // viewport on a phone; the row may wrap there and only refuses to
+          // shrink once it sits beside the title.
+          <div className="flex flex-wrap items-center gap-2 sm:shrink-0">{actions}</div>
         ) : null}
       </div>
       {children}

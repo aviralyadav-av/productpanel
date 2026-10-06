@@ -1,167 +1,145 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Plus, X } from "lucide-react";
+import { X } from "lucide-react";
 
-import {
-  FilterTabs,
-  SearchInput,
-} from "@/components/shared/list-controls";
+import { MultiSelect } from "@/components/shared/combobox";
+import { DateRangePicker } from "@/components/shared/date-range-picker";
+import { EntityPicker, type EntityRef } from "@/components/shared/entity-picker";
+import { MoneyInput } from "@/components/shared/money-input";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { mergeQuery } from "@/lib/list-params";
-import { PRODUCT_STATUSES, PRODUCT_STATUS_META } from "@/lib/enums";
-import type { ProductStatus } from "@/lib/enums";
-import {
-  PRODUCT_FLAG_META,
-  type ProductFlag,
-} from "@/features/products/filters";
-import type { CategoryOption } from "@/features/products/queries";
-import { GENDER_LABELS, type Gender } from "@/features/products/schemas";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { useQueryNav } from "@/hooks/use-query-nav";
+
+import { CategorySelect } from "@/features/products/components/category-select";
+import { PRODUCT_FLAGS, PRODUCT_FLAG_LABELS, STOCK_FILTERS, STOCK_FILTER_LABELS, type ProductListFilters } from "@/features/products/filters";
+import type { AttributeCatalogEntry, CategoryOption } from "@/features/products/queries";
 
 /**
- * Every control writes to the URL. Radix Select cannot hold "" as a value, so
- * "all" is the sentinel for "no filter" and "none" for "uncategorised", which
- * is itself a real state worth filtering on.
+ * Every filter of the product list, all writing to the URL through
+ * useQueryNav (the page is a Server Component that re-queries from
+ * searchParams). Price inputs commit on blur/Enter rather than per keystroke
+ * so typing "1200" does not run four queries.
  */
-const ALL = "all";
-const UNCATEGORISED = "none";
-
-export function ProductToolbar({
-  statusCounts,
+export function ProductFilters({
+  filters,
   categories,
-  genders,
-  uncategorisedCount,
-  activeFlag,
+  attributes,
+  seller,
 }: {
-  statusCounts: Record<"all" | ProductStatus, number>;
+  filters: ProductListFilters;
   categories: CategoryOption[];
-  genders: Array<{ value: string; count: number }>;
-  uncategorisedCount: number;
-  activeFlag?: ProductFlag;
+  attributes: AttributeCatalogEntry[];
+  /** Hydrated seller for the picker chip when ?seller= is set. */
+  seller: EntityRef | null;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const { navigate } = useQueryNav();
+  const [minPaise, setMinPaise] = React.useState<number | null>(filters.minPricePaise ?? null);
+  const [maxPaise, setMaxPaise] = React.useState<number | null>(filters.maxPricePaise ?? null);
 
-  const navigate = React.useCallback(
-    (changes: Record<string, string | null>) => {
-      const query = mergeQuery(searchParams.toString(), changes);
-      router.replace(`${pathname}${query}` as never, { scroll: false });
-    },
-    [router, pathname, searchParams],
-  );
+  const commitPrice = () => {
+    navigate({
+      minPrice: minPaise === null ? null : String(minPaise / 100),
+      maxPrice: maxPaise === null ? null : String(maxPaise / 100),
+    });
+  };
 
-  const category = searchParams.get("category") ?? ALL;
-  const gender = searchParams.get("gender") ?? ALL;
-
-  const parents = categories.filter((option) => option.parentId === null);
-  const children = categories.filter((option) => option.parentId !== null);
+  const sellerValue: EntityRef | null = filters.platformOnly ? { id: "platform", title: "Platform (no seller)" } : seller;
+  const attributeByCode = new Map(attributes.map((attribute) => [attribute.code, attribute]));
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <SearchInput
-          placeholder="Search title, slug or description…"
-          className="w-full sm:w-64"
-        />
+    <div className="flex w-full flex-wrap items-center gap-2">
+      <CategorySelect
+        categories={categories}
+        value={filters.categoryId ?? null}
+        onChange={(value) => navigate({ category: value })}
+        includeNone
+        className="w-56"
+      />
+      {filters.categoryId && filters.categoryId !== "none" ? (
+        <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <Switch
+            checked={filters.includeDescendants}
+            onCheckedChange={(checked) => navigate({ includeDescendants: checked ? null : "0" })}
+            aria-label="Include subcategories"
+          />
+          Subcategories
+        </label>
+      ) : null}
 
-        <FilterTabs
-          paramKey="status"
-          allLabel="All"
-          options={PRODUCT_STATUSES.map((status) => ({
-            value: status,
-            label: PRODUCT_STATUS_META[status].label,
-            count: statusCounts[status],
-          }))}
-        />
+      <EntityPicker
+        kind="seller"
+        value={sellerValue}
+        onChange={(ref) => navigate({ seller: ref?.id ?? null })}
+        placeholder="Any seller"
+        className="w-52"
+      />
+      <Button
+        type="button"
+        variant={filters.platformOnly ? "secondary" : "outline"}
+        size="sm"
+        onClick={() => navigate({ seller: filters.platformOnly ? null : "platform" })}
+      >
+        Platform only
+      </Button>
 
-        <Select
-          value={category}
-          onValueChange={(value) =>
-            navigate({ category: value === ALL ? null : value })
-          }
-        >
-          <SelectTrigger size="sm" className="w-44" aria-label="Category">
-            <SelectValue placeholder="Category" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All categories</SelectItem>
-            <SelectItem value={UNCATEGORISED}>
-              Uncategorised ({uncategorisedCount})
+      <Select value={filters.stock ?? "any"} onValueChange={(value) => navigate({ stock: value === "any" ? null : value })}>
+        <SelectTrigger size="sm" className="w-36" aria-label="Stock">
+          <SelectValue placeholder="Any stock" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="any">Any stock</SelectItem>
+          {STOCK_FILTERS.map((value) => (
+            <SelectItem key={value} value={value}>
+              {STOCK_FILTER_LABELS[value]}
             </SelectItem>
-            <SelectSeparator />
-            {parents.map((parent) => (
-              <SelectItem key={parent.id} value={parent.id}>
-                {parent.name}
-              </SelectItem>
-            ))}
-            {children.length > 0 ? <SelectSeparator /> : null}
-            {children.map((child) => (
-              <SelectItem key={child.id} value={child.id}>
-                {child.parentName ? `${child.parentName} › ` : ""}
-                {child.name} ({child.productCount})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          ))}
+        </SelectContent>
+      </Select>
 
-        <Select
-          value={gender}
-          onValueChange={(value) =>
-            navigate({ gender: value === ALL ? null : value })
-          }
-        >
-          <SelectTrigger size="sm" className="w-32" aria-label="Gender">
-            <SelectValue placeholder="Gender" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All genders</SelectItem>
-            {genders.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {GENDER_LABELS[option.value as Gender] ?? option.value} (
-                {option.count})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Button asChild size="sm" className="ml-auto">
-          <Link href="/products/new">
-            <Plus />
-            New product
-          </Link>
-        </Button>
+      <div className="flex items-center gap-1" onKeyDown={(event) => event.key === "Enter" && commitPrice()}>
+        <MoneyInput valuePaise={minPaise} onChangePaise={setMinPaise} placeholder="Min ₹" allowEmpty className="w-24" />
+        <span className="text-muted-foreground text-xs">to</span>
+        <MoneyInput valuePaise={maxPaise} onChangePaise={setMaxPaise} placeholder="Max ₹" allowEmpty className="w-24" />
+        {(minPaise ?? null) !== (filters.minPricePaise ?? null) || (maxPaise ?? null) !== (filters.maxPricePaise ?? null) ? (
+          <Button type="button" size="xs" variant="secondary" onClick={commitPrice}>
+            Apply
+          </Button>
+        ) : null}
       </div>
 
-      {activeFlag ? (
-        <div className="border-warning/30 bg-warning-muted/40 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-3 py-1.5 text-xs">
-          <span className="font-medium">
-            {PRODUCT_FLAG_META[activeFlag].label}
+      <DateRangePicker />
+
+      <MultiSelect
+        options={PRODUCT_FLAGS.map((flag) => ({ value: flag, label: PRODUCT_FLAG_LABELS[flag] }))}
+        value={filters.flags}
+        onChange={(flags) => navigate({ flags: flags.length ? flags.join(",") : null })}
+        placeholder="Flags"
+        maxVisibleChips={2}
+        className="w-44"
+      />
+
+      {Object.entries(filters.attr).map(([code, value]) => {
+        const attribute = attributeByCode.get(code);
+        const labels = attribute
+          ? value
+              .split(",")
+              .map((part) => attribute.values.find((item) => item.value === part || item.id === part)?.label ?? part)
+              .join(", ")
+          : value;
+        return (
+          <span key={code} className="bg-muted inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs">
+            <span className="text-muted-foreground">{attribute?.name ?? code}:</span> {labels}
+            <button type="button" aria-label={`Clear ${code} filter`} onClick={() => navigate({ [`attr[${code}]`]: null })}>
+              <X className="size-3" />
+            </button>
           </span>
-          <span className="text-muted-foreground">
-            {PRODUCT_FLAG_META[activeFlag].description}
-          </span>
-          <Button
-            variant="ghost"
-            size="xs"
-            className="ml-auto"
-            onClick={() => navigate({ flag: null })}
-          >
-            <X />
-            Clear filter
-          </Button>
-        </div>
-      ) : null}
+        );
+      })}
+
+      <Label className="sr-only">Filters</Label>
     </div>
   );
 }

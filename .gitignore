@@ -44,3 +44,10 @@ next-env.d.ts
 # local database artefacts
 prisma/*.db
 prisma/*.db-journal
+
+# uploaded media (local storage driver)
+/public/uploads/*
+!/public/uploads/.gitkeep
+
+# local storage driver (STORAGE_LOCAL_DIR): public/ and private/ media
+/storage/

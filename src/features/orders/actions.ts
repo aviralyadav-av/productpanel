@@ -1,509 +1,381 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { Prisma } from "@prisma/client";
+import { headers } from "next/headers";
 
-import { db } from "@/lib/db";
-import { requireAdminOrThrow } from "@/lib/auth/guards";
-import { writeAudit, diffOf } from "@/lib/audit";
+import { fail, ok, runAction, zodFail, type ActionResult } from "@/lib/action-result";
+import { requirePermissionOrThrow } from "@/lib/auth/guards";
+import { clientIp } from "@/lib/client-ip";
+import { formatPaise } from "@/lib/money";
+import { ORDER_STATUS_META, type OrderStatus } from "@/lib/enums";
+
 import {
-  ok,
-  fail,
-  zodFail,
-  runAction,
-  type ActionResult,
-} from "@/lib/action-result";
-import {
-  ORDER_STATUS_META,
-  ORDER_TRANSITIONS,
-  PAYMENT_STATUS_META,
-  TERMINAL_ORDER_STATUSES,
-  canTransition,
-  type OrderStatus,
-  type PaymentStatus,
-} from "@/lib/enums";
-import { formatPaise, rupeesToPaise } from "@/lib/money";
-import {
-  addOrderNoteSchema,
-  changeOrderStatusSchema,
-  markPaymentStatusSchema,
-  recordRefundSchema,
-  updateShippingAddressSchema,
-  type AddOrderNoteInput,
-  type ChangeOrderStatusInput,
-  type MarkPaymentStatusInput,
-  type RecordRefundInput,
-  type UpdateShippingAddressInput,
+  addNoteSchema,
+  bulkOrdersSchema,
+  cancelOrderItemSchema,
+  createShipmentSchema,
+  manualOrderSchema,
+  orderIdSchema,
+  previewDraftSchema,
+  recordManualPaymentSchema,
+  transitionOrderSchema,
+  updateAddressSchema,
+  updateShipmentStatusSchema,
+  type AddNoteInput,
+  type BulkOrdersInput,
+  type CancelOrderItemInput,
+  type CreateShipmentInput,
+  type ManualOrderInput,
+  type PreviewDraftInput,
+  type RecordManualPaymentInput,
+  type TransitionOrderInput,
+  type UpdateAddressInput,
+  type UpdateShipmentStatusInput,
 } from "./schemas";
-
-function label(status: OrderStatus): string {
-  return ORDER_STATUS_META[status].label;
-}
-
-function revalidateOrder(orderId: string) {
-  revalidatePath("/orders");
-  revalidatePath(`/orders/${orderId}`);
-  // Order totals and pipeline counts are on the dashboard and in the sidebar
-  // badge, both of which are rendered from the same rows.
-  revalidatePath("/dashboard");
-}
+import {
+  addOrderNote,
+  bulkTransitionOrders,
+  cancelOrderItem,
+  createManualOrder,
+  createShipment,
+  previewManualOrderDraft,
+  recordManualPayment,
+  resendOrderConfirmation,
+  rtoReceived,
+  settleStockChanges,
+  transitionOrder,
+  updateOrderAddress,
+  updateShipmentStatus,
+} from "./service";
+import type { OrderDraft } from "./draft";
+import type { ManualProductInfo } from "./manual-types";
+import { getManualOrderProduct } from "./queries";
 
 /**
- * The order state machine.
+ * Thin Server Action wrappers: permission -> zod -> service (its own
+ * transaction, its own audit row) -> post-commit stock side effects ->
+ * revalidate -> ActionResult.
  *
- * ORDER_TRANSITIONS is the whole rulebook. The detail page disables moves that
- * are not reachable, but that is an affordance - this function is the check,
- * because a Server Action is a public HTTP endpoint and the UI is not.
+ * No business rule lives here. Everything an action can do, the matching REST
+ * route can do too, because both call the same service function - which is
+ * what stops the screens and the API drifting apart.
  */
-export async function changeOrderStatus(
-  input: ChangeOrderStatusInput,
-): Promise<ActionResult<{ status: OrderStatus; restockedUnits: number }>> {
-  const actor = await requireAdminOrThrow();
 
-  const parsed = changeOrderStatusSchema.safeParse(input);
-  if (!parsed.success) return zodFail(parsed.error);
+const LIST_PATH = "/admin/orders";
 
-  const { orderId, toStatus } = parsed.data;
-  const reason =
-    [parsed.data.reason, parsed.data.detail].filter(Boolean).join(" — ") ||
-    null;
+async function requestIp(): Promise<string> {
+  return clientIp(await headers());
+}
 
-  return runAction<{ status: OrderStatus; restockedUnits: number }>(async () => {
-    const order = await db.order.findUnique({
-      where: { id: orderId },
-      select: {
-        id: true,
-        orderNumber: true,
-        status: true,
-        items: {
-          select: {
-            variantId: true,
-            quantity: true,
-            titleSnapshot: true,
-            variantSnapshot: true,
-          },
-        },
-      },
+function revalidateOrder(orderId?: string): void {
+  revalidatePath(LIST_PATH);
+  if (orderId) {
+    revalidatePath(`${LIST_PATH}/${orderId}`);
+    revalidatePath(`${LIST_PATH}/${orderId}/invoice`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Manual order entry
+// ---------------------------------------------------------------------------
+
+export async function previewOrderDraftAction(input: PreviewDraftInput): Promise<ActionResult<OrderDraft>> {
+  return runAction(async () => {
+    await requirePermissionOrThrow("orders.create");
+    const parsed = previewDraftSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
+    const values = parsed.data;
+    if (values.items.length === 0) return ok(null as unknown as OrderDraft, "Add an item to price the order.");
+
+    const draft = await previewManualOrderDraft({
+      items: values.items,
+      paymentMethod: values.paymentMethod,
+      couponCode: values.couponCode,
+      shippingRateId: values.shippingRateId,
+      destination: values.pinCode && values.pinCode.length === 6 ? { pinCode: values.pinCode, state: values.state ?? null } : null,
+      customer: { email: values.customerEmail ?? null, customerId: values.customerId ?? null },
     });
+    return ok(draft);
+  });
+}
 
-    if (!order) return fail("That order no longer exists.");
+export async function createManualOrderAction(
+  input: ManualOrderInput,
+): Promise<ActionResult<{ orderId: string; orderNumber: string; status: string; totalPaise: number; paymentError: string | null }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("orders.create");
+    const parsed = manualOrderSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
 
-    const fromStatus = order.status as OrderStatus;
+    const result = await createManualOrder(actor, parsed.data, { ip: await requestIp() });
+    revalidateOrder(result.orderId);
+    return ok(
+      {
+        orderId: result.orderId,
+        orderNumber: result.orderNumber,
+        status: result.status,
+        totalPaise: result.totalPaise,
+        paymentError: result.paymentError,
+      },
+      `Order ${result.orderNumber} created for ${formatPaise(result.totalPaise)}.`,
+    );
+  });
+}
 
-    if (fromStatus === toStatus) {
-      return fail(`This order is already ${label(toStatus).toLowerCase()}.`);
-    }
+// ---------------------------------------------------------------------------
+// Status, notes, address
+// ---------------------------------------------------------------------------
 
-    if (!canTransition(fromStatus, toStatus)) {
-      const allowed = ORDER_TRANSITIONS[fromStatus] ?? [];
-      return fail(
-        allowed.length === 0
-          ? `${label(fromStatus)} is a final status. This order cannot change again.`
-          : `An order that is ${label(fromStatus).toLowerCase()} can only move to ${allowed
-              .map((next) => label(next).toLowerCase())
-              .join(" or ")}.`,
-      );
-    }
+export async function transitionOrderAction(
+  orderId: string,
+  input: TransitionOrderInput,
+): Promise<ActionResult<{ orderId: string; status: string; refundNumber: string | null }>> {
+  return runAction(async () => {
+    const parsedId = orderIdSchema.safeParse(orderId);
+    if (!parsedId.success) return fail("Invalid order id.");
+    const parsed = transitionOrderSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
 
-    const restocks = TERMINAL_ORDER_STATUSES.includes(toStatus);
-    let restockedUnits = 0;
+    // Cancelling is a separate, scarcer permission than moving an order along.
+    const cancelling = parsed.data.toStatus === "CANCELLED" || parsed.data.toStatus === "FAILED";
+    const actor = await requirePermissionOrThrow(cancelling ? "orders.cancel" : "orders.update");
 
-    await db.$transaction(async (tx) => {
-      const data: Prisma.OrderUpdateInput = { status: toStatus };
+    const result = await transitionOrder({
+      orderId: parsedId.data,
+      toStatus: parsed.data.toStatus,
+      actor,
+      reason: parsed.data.reason,
+      note: parsed.data.note,
+      ip: await requestIp(),
+    });
+    await settleStockChanges(result.stockChanges);
+    revalidateOrder(result.orderId);
 
-      // PROCESSING and RETURNED have no timestamp column on Order. Their
-      // OrderEvent row is the timestamp, which is why the timeline is the
-      // authoritative history and these columns are only a fast path.
-      if (toStatus === "CONFIRMED") data.confirmedAt = new Date();
-      if (toStatus === "SHIPPED") data.shippedAt = new Date();
-      if (toStatus === "DELIVERED") data.deliveredAt = new Date();
-      if (toStatus === "CANCELLED") {
-        data.cancelledAt = new Date();
-        data.cancelReason = reason;
-      }
+    const label = ORDER_STATUS_META[result.toStatus as OrderStatus]?.label ?? result.toStatus;
+    return ok(
+      { orderId: result.orderId, status: result.toStatus, refundNumber: result.refund?.refundNumber ?? null },
+      result.refund
+        ? `${result.orderNumber} is now ${label.toLowerCase()}. Refund ${result.refund.refundNumber} for ${formatPaise(result.refund.amountPaise)} is awaiting approval.`
+        : `${result.orderNumber} is now ${label.toLowerCase()}.`,
+    );
+  });
+}
 
-      await tx.order.update({ where: { id: order.id }, data });
+export async function bulkOrdersAction(
+  input: BulkOrdersInput,
+): Promise<ActionResult<{ op: string; requested: number; affected: number; skipped: Array<{ id: string; orderNumber: string | null; reason: string }> }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("orders.update");
+    const parsed = bulkOrdersSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
 
-      if (restocks) {
-        // One movement per line, read-then-write in sequence so the running
-        // balance is right even when two lines share a variant.
-        for (const item of order.items) {
-          if (!item.variantId || item.quantity <= 0) continue;
+    const result = await bulkTransitionOrders(parsed.data, actor, { ip: await requestIp() });
+    await settleStockChanges(result.stockChanges);
+    revalidateOrder();
+    return ok(
+      { op: result.op, requested: result.requested, affected: result.affected, skipped: result.skipped },
+      result.skipped.length
+        ? `${result.affected} of ${result.requested} orders updated; ${result.skipped.length} skipped.`
+        : `${result.affected} order${result.affected === 1 ? "" : "s"} updated.`,
+    );
+  });
+}
 
-          const inventory = await tx.inventoryItem.findUnique({
-            where: { variantId: item.variantId },
-            select: { onHand: true },
-          });
-          // A variant deleted since the order was placed has no inventory row
-          // to restock into. Skipping is honest; inventing one is not.
-          if (!inventory) continue;
+export async function addOrderNoteAction(orderId: string, input: AddNoteInput): Promise<ActionResult<{ eventId: string }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("orders.notes");
+    const parsedId = orderIdSchema.safeParse(orderId);
+    if (!parsedId.success) return fail("Invalid order id.");
+    const parsed = addNoteSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
 
-          const balance = inventory.onHand + item.quantity;
+    const result = await addOrderNote({
+      orderId: parsedId.data,
+      message: parsed.data.message,
+      isInternal: parsed.data.isInternal,
+      actor,
+      ip: await requestIp(),
+    });
+    revalidateOrder(parsedId.data);
+    return ok({ eventId: result.eventId }, parsed.data.isInternal ? "Internal note added." : "Note added to the order.");
+  });
+}
 
-          await tx.inventoryItem.update({
-            where: { variantId: item.variantId },
-            data: { onHand: balance },
-          });
+export async function updateOrderAddressAction(orderId: string, input: UpdateAddressInput): Promise<ActionResult<{ type: string }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("orders.update");
+    const parsedId = orderIdSchema.safeParse(orderId);
+    if (!parsedId.success) return fail("Invalid order id.");
+    const parsed = updateAddressSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
 
-          await tx.stockMovement.create({
-            data: {
-              variantId: item.variantId,
-              delta: item.quantity,
-              type: toStatus === "RETURNED" ? "RETURN" : "ADJUSTMENT",
-              reason:
-                toStatus === "RETURNED" ? "Order returned" : "Order cancelled",
-              note: [order.orderNumber, item.titleSnapshot, item.variantSnapshot]
-                .filter(Boolean)
-                .join(" · "),
-              orderId: order.id,
-              actorId: actor.id,
-              balance,
-            },
-          });
+    const { type, ...values } = parsed.data;
+    const result = await updateOrderAddress({ orderId: parsedId.data, type, values, actor, ip: await requestIp() });
+    revalidateOrder(parsedId.data);
+    return ok({ type: result.type }, `${type === "SHIPPING" ? "Shipping" : "Billing"} address updated.`);
+  });
+}
 
-          restockedUnits += item.quantity;
-        }
-      }
+export async function resendOrderConfirmationAction(orderId: string): Promise<ActionResult<{ email: string; queued: boolean }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("orders.update");
+    const parsedId = orderIdSchema.safeParse(orderId);
+    if (!parsedId.success) return fail("Invalid order id.");
 
-      await tx.orderEvent.create({
-        data: {
-          orderId: order.id,
-          type: "STATUS_CHANGE",
-          fromStatus,
-          toStatus,
-          message: [
-            `${label(fromStatus)} → ${label(toStatus)}`,
-            reason,
-            restockedUnits > 0
-              ? `${restockedUnits} unit${restockedUnits === 1 ? "" : "s"} returned to stock`
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-          actorId: actor.id,
-        },
+    const result = await resendOrderConfirmation({ orderId: parsedId.data, actor, ip: await requestIp() });
+    revalidateOrder(parsedId.data);
+    return ok(
+      { email: result.email, queued: result.queued },
+      result.queued ? `Confirmation re-sent to ${result.email}. The old tracking link no longer works.` : `Not sent: ${result.reason}.`,
+    );
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Money
+// ---------------------------------------------------------------------------
+
+export async function recordManualPaymentAction(
+  orderId: string,
+  input: RecordManualPaymentInput,
+): Promise<ActionResult<{ paymentId: string; paymentStatus: string }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("payments.manage");
+    const parsedId = orderIdSchema.safeParse(orderId);
+    if (!parsedId.success) return fail("Invalid order id.");
+    const parsed = recordManualPaymentSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
+
+    const ip = await requestIp();
+    const result = await recordManualPayment({ orderId: parsedId.data, actor, values: parsed.data, ip });
+
+    // A payment that settles a PENDING order confirms it (same rule the
+    // gateway job applies), so the operator does not have to click twice.
+    if (result.shouldConfirm) {
+      const moved = await transitionOrder({
+        orderId: parsedId.data,
+        toStatus: "CONFIRMED",
+        actor,
+        note: `Payment of ${formatPaise(parsed.data.amountPaise as number)} recorded`,
+        ip,
       });
-    });
+      await settleStockChanges(moved.stockChanges);
+    }
 
-    // Audit lives outside the transaction on purpose: writeAudit uses the
-    // shared client and swallows its own failures, and a lost audit row must
-    // never roll back the status change an operator actually asked for.
-    await writeAudit({
+    revalidateOrder(parsedId.data);
+    return ok({ paymentId: result.paymentId, paymentStatus: result.paymentStatus }, "Payment recorded.");
+  });
+}
+
+export async function cancelOrderItemAction(
+  orderId: string,
+  orderItemId: string,
+  input: CancelOrderItemInput,
+): Promise<ActionResult<{ orderCancelled: boolean; refundNumber: string | null }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("orders.cancel");
+    const parsedId = orderIdSchema.safeParse(orderId);
+    const parsedItemId = orderIdSchema.safeParse(orderItemId);
+    if (!parsedId.success || !parsedItemId.success) return fail("Invalid order id.");
+    const parsed = cancelOrderItemSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
+
+    const result = await cancelOrderItem({
+      orderId: parsedId.data,
+      orderItemId: parsedItemId.data,
+      quantity: parsed.data.quantity,
+      reason: parsed.data.reason,
       actor,
-      action: "order.status_change",
-      entityType: "Order",
-      entityId: order.id,
-      summary: `Order ${order.orderNumber} moved from ${label(fromStatus)} to ${label(toStatus)}`,
-      diff: diffOf(
-        { status: fromStatus },
-        { status: toStatus, cancelReason: reason, restockedUnits },
-      ),
+      ip: await requestIp(),
     });
-
-    revalidateOrder(order.id);
-    if (restockedUnits > 0) revalidatePath("/inventory");
-
+    await settleStockChanges(result.stockChanges);
+    revalidateOrder(parsedId.data);
     return ok(
-      { status: toStatus, restockedUnits },
-      restockedUnits > 0
-        ? `Order ${order.orderNumber} is ${label(toStatus).toLowerCase()}. ${restockedUnits} unit${restockedUnits === 1 ? "" : "s"} returned to stock.`
-        : `Order ${order.orderNumber} is now ${label(toStatus).toLowerCase()}.`,
+      { orderCancelled: result.orderCancelled, refundNumber: result.refund?.refundNumber ?? null },
+      result.orderCancelled ? "Last line cancelled - the order is now cancelled." : `Cancelled ${result.cancelledQuantity} unit(s).`,
     );
   });
 }
 
-/**
- * Notes are always internal. There is no customer-facing order view in this
- * project for a public note to appear on, so offering the choice would be
- * offering something that does not exist.
- */
-export async function addOrderNote(
-  input: AddOrderNoteInput,
-): Promise<ActionResult<{ id: string }>> {
-  const actor = await requireAdminOrThrow();
+// ---------------------------------------------------------------------------
+// Shipments
+// ---------------------------------------------------------------------------
 
-  const parsed = addOrderNoteSchema.safeParse(input);
-  if (!parsed.success) return zodFail(parsed.error);
+export async function createShipmentAction(
+  orderId: string,
+  input: CreateShipmentInput,
+): Promise<ActionResult<{ shipmentId: string; shipmentNumber: string }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("orders.ship");
+    const parsedId = orderIdSchema.safeParse(orderId);
+    if (!parsedId.success) return fail("Invalid order id.");
+    const parsed = createShipmentSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
 
-  const { orderId, message } = parsed.data;
-
-  return runAction<{ id: string }>(async () => {
-    const order = await db.order.findUnique({
-      where: { id: orderId },
-      select: { id: true, orderNumber: true },
-    });
-    if (!order) return fail("That order no longer exists.");
-
-    const event = await db.orderEvent.create({
-      data: {
-        orderId: order.id,
-        type: "NOTE",
-        message,
-        isInternal: true,
-        actorId: actor.id,
-      },
-      select: { id: true },
-    });
-
-    await writeAudit({
-      actor,
-      action: "order.note",
-      entityType: "Order",
-      entityId: order.id,
-      summary: `Note added to order ${order.orderNumber}`,
-      diff: diffOf(null, { message }),
-    });
-
-    revalidateOrder(order.id);
-    return ok({ id: event.id }, "Note added to the timeline.");
+    const result = await createShipment({ orderId: parsedId.data, actor, values: parsed.data });
+    revalidateOrder(parsedId.data);
+    return ok({ shipmentId: result.shipmentId, shipmentNumber: result.shipmentNumber }, `Shipment ${result.shipmentNumber} created.`);
   });
 }
 
-/**
- * Bookkeeping, not an integration. No payment gateway exists anywhere in this
- * project, so this records what the operator knows to be true - money received
- * in hand for a COD delivery, or a bank transfer they can see.
- */
-export async function markPaymentStatus(
-  input: MarkPaymentStatusInput,
-): Promise<ActionResult<{ paymentStatus: PaymentStatus }>> {
-  const actor = await requireAdminOrThrow();
+export async function updateShipmentStatusAction(
+  orderId: string,
+  shipmentId: string,
+  input: UpdateShipmentStatusInput,
+): Promise<ActionResult<{ shipmentId: string; status: string; orderStatus: string }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("orders.ship");
+    const parsedId = orderIdSchema.safeParse(orderId);
+    const parsedShipmentId = orderIdSchema.safeParse(shipmentId);
+    if (!parsedId.success || !parsedShipmentId.success) return fail("Invalid id.");
+    const parsed = updateShipmentStatusSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
 
-  const parsed = markPaymentStatusSchema.safeParse(input);
-  if (!parsed.success) return zodFail(parsed.error);
-
-  const { orderId, paymentStatus, note } = parsed.data;
-
-  return runAction<{ paymentStatus: PaymentStatus }>(async () => {
-    const order = await db.order.findUnique({
-      where: { id: orderId },
-      select: {
-        id: true,
-        orderNumber: true,
-        paymentStatus: true,
-        paymentMethod: true,
-        refundedPaise: true,
-      },
-    });
-    if (!order) return fail("That order no longer exists.");
-
-    const previous = order.paymentStatus as PaymentStatus;
-
-    if (previous === paymentStatus) {
-      return fail(
-        `Payment is already marked ${PAYMENT_STATUS_META[paymentStatus].label.toLowerCase()}.`,
-      );
-    }
-
-    // Refund states are derived from the refund ledger. Letting an operator
-    // overwrite them by hand would make refundedPaise and paymentStatus
-    // disagree with no way to tell which one is wrong.
-    if (order.refundedPaise > 0) {
-      return fail(
-        `${formatPaise(order.refundedPaise)} has been refunded on this order, so its payment status is set by the refund record.`,
-      );
-    }
-
-    await db.$transaction([
-      db.order.update({
-        where: { id: order.id },
-        data: { paymentStatus },
-      }),
-      db.orderEvent.create({
-        data: {
-          orderId: order.id,
-          type: "PAYMENT",
-          message: [
-            `Payment marked ${PAYMENT_STATUS_META[paymentStatus].label.toLowerCase()} (${order.paymentMethod})`,
-            note,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-          actorId: actor.id,
-        },
-      }),
-    ]);
-
-    await writeAudit({
+    const result = await updateShipmentStatus({
+      orderId: parsedId.data,
+      shipmentId: parsedShipmentId.data,
       actor,
-      action: "order.payment_status",
-      entityType: "Order",
-      entityId: order.id,
-      summary: `Order ${order.orderNumber} payment marked ${PAYMENT_STATUS_META[paymentStatus].label.toLowerCase()}`,
-      diff: diffOf({ paymentStatus: previous }, { paymentStatus, note }),
+      values: parsed.data,
     });
-
-    revalidateOrder(order.id);
+    revalidateOrder(parsedId.data);
     return ok(
-      { paymentStatus },
-      `Payment marked ${PAYMENT_STATUS_META[paymentStatus].label.toLowerCase()}.`,
+      { shipmentId: result.shipmentId, status: result.status, orderStatus: result.orderStatus },
+      `${result.shipmentNumber} updated.`,
     );
   });
 }
 
-/**
- * A refund here moves no money. It records that a refund happened outside this
- * system so the books, the timeline and the revenue figures agree with reality.
- */
-export async function recordRefund(
-  input: RecordRefundInput,
-): Promise<ActionResult<{ refundedPaise: number; paymentStatus: PaymentStatus }>> {
-  const actor = await requireAdminOrThrow();
+export async function rtoReceivedAction(
+  orderId: string,
+  shipmentId: string,
+  note?: string,
+): Promise<ActionResult<{ orderStatus: string }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow(["orders.ship", "orders.cancel"]);
+    const parsedId = orderIdSchema.safeParse(orderId);
+    const parsedShipmentId = orderIdSchema.safeParse(shipmentId);
+    if (!parsedId.success || !parsedShipmentId.success) return fail("Invalid id.");
 
-  const parsed = recordRefundSchema.safeParse(input);
-  if (!parsed.success) return zodFail(parsed.error);
-
-  const { orderId, reason } = parsed.data;
-  const amountPaise = rupeesToPaise(parsed.data.amountRupees);
-
-  return runAction<{ refundedPaise: number; paymentStatus: PaymentStatus }>(async () => {
-    const order = await db.order.findUnique({
-      where: { id: orderId },
-      select: {
-        id: true,
-        orderNumber: true,
-        totalPaise: true,
-        refundedPaise: true,
-        paymentStatus: true,
-      },
-    });
-    if (!order) return fail("That order no longer exists.");
-
-    const remaining = order.totalPaise - order.refundedPaise;
-    if (remaining <= 0) {
-      return fail("This order is already refunded in full.");
-    }
-
-    if (amountPaise > remaining) {
-      return fail(
-        `That is more than is left to refund. At most ${formatPaise(remaining)} can still be refunded on this order.`,
-        { amountRupees: `Maximum ${formatPaise(remaining)}` },
-      );
-    }
-
-    const refundedPaise = order.refundedPaise + amountPaise;
-    const paymentStatus: PaymentStatus =
-      refundedPaise >= order.totalPaise ? "REFUNDED" : "PARTIALLY_REFUNDED";
-    const previous = order.paymentStatus as PaymentStatus;
-
-    await db.$transaction([
-      db.order.update({
-        where: { id: order.id },
-        data: { refundedPaise, paymentStatus },
-      }),
-      db.orderEvent.create({
-        data: {
-          orderId: order.id,
-          type: "REFUND",
-          message: [
-            `Refund of ${formatPaise(amountPaise)} recorded (${formatPaise(refundedPaise)} of ${formatPaise(order.totalPaise)} total)`,
-            reason,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-          actorId: actor.id,
-        },
-      }),
-    ]);
-
-    await writeAudit({
-      actor,
-      action: "order.refund",
-      entityType: "Order",
-      entityId: order.id,
-      summary: `Refund of ${formatPaise(amountPaise)} recorded on order ${order.orderNumber}`,
-      diff: diffOf(
-        { refundedPaise: order.refundedPaise, paymentStatus: previous },
-        { refundedPaise, paymentStatus, reason },
-      ),
-    });
-
-    revalidateOrder(order.id);
-    return ok(
-      { refundedPaise, paymentStatus },
-      `Recorded a ${formatPaise(amountPaise)} refund.`,
-    );
+    const result = await rtoReceived({ orderId: parsedId.data, shipmentId: parsedShipmentId.data, actor, note: note ?? null });
+    await settleStockChanges(result.stockChanges);
+    revalidateOrder(parsedId.data);
+    return ok({ orderStatus: result.orderStatus }, "Parcel received back; stock restocked.");
   });
 }
 
 /**
- * The shipping block is a snapshot taken at checkout, so editing it changes
- * this order only - never the customer's saved address.
+ * Load a picked product's variants and customisation options for the manual
+ * order form. Read-only, but a Server Action rather than a REST call so the
+ * form does not have to hand-roll fetch error handling for something it needs
+ * on every product pick.
  */
-export async function updateShippingAddress(
-  input: UpdateShippingAddressInput,
-): Promise<ActionResult<{ id: string }>> {
-  const actor = await requireAdminOrThrow();
-
-  const parsed = updateShippingAddressSchema.safeParse(input);
-  if (!parsed.success) return zodFail(parsed.error);
-
-  const { orderId, ...address } = parsed.data;
-
-  return runAction<{ id: string }>(async () => {
-    const order = await db.order.findUnique({
-      where: { id: orderId },
-      select: {
-        id: true,
-        orderNumber: true,
-        status: true,
-        shipFullName: true,
-        shipEmail: true,
-        shipPhone: true,
-        shipAddress: true,
-        shipCity: true,
-        shipState: true,
-        shipPinCode: true,
-      },
-    });
-    if (!order) return fail("That order no longer exists.");
-
-    if (order.status === "DELIVERED" || order.status === "RETURNED") {
-      return fail(
-        `This order is already ${order.status.toLowerCase()}. Its delivery address is now part of the record and cannot be rewritten.`,
-      );
-    }
-
-    const before = {
-      shipFullName: order.shipFullName,
-      shipEmail: order.shipEmail,
-      shipPhone: order.shipPhone,
-      shipAddress: order.shipAddress,
-      shipCity: order.shipCity,
-      shipState: order.shipState,
-      shipPinCode: order.shipPinCode,
-    };
-
-    const diff = diffOf(before, address);
-    if (!diff) return ok({ id: order.id }, "Nothing changed.");
-
-    await db.$transaction([
-      db.order.update({ where: { id: order.id }, data: address }),
-      db.orderEvent.create({
-        data: {
-          orderId: order.id,
-          type: "SYSTEM",
-          message: `Shipping details edited: ${Object.keys(
-            diff as unknown as Record<string, unknown>,
-          )
-            .map((key) => key.replace(/^ship/, "").toLowerCase())
-            .join(", ")}`,
-          isInternal: true,
-          actorId: actor.id,
-        },
-      }),
-    ]);
-
-    await writeAudit({
-      actor,
-      action: "order.address_update",
-      entityType: "Order",
-      entityId: order.id,
-      summary: `Shipping details edited on order ${order.orderNumber}`,
-      diff,
-    });
-
-    revalidateOrder(order.id);
-    return ok({ id: order.id }, "Shipping details updated.");
+export async function loadOrderProductAction(productId: string): Promise<ActionResult<ManualProductInfo>> {
+  return runAction(async () => {
+    await requirePermissionOrThrow("orders.create");
+    const parsed = orderIdSchema.safeParse(productId);
+    if (!parsed.success) return fail("Invalid product id.");
+    const product = await getManualOrderProduct(parsed.data);
+    if (!product) return fail("That product no longer exists.");
+    return ok(product);
   });
 }

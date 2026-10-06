@@ -2,192 +2,151 @@
 
 import { revalidatePath } from "next/cache";
 
-import { db } from "@/lib/db";
-import { requireAdminOrThrow } from "@/lib/auth/guards";
-import { diffOf, writeAudit } from "@/lib/audit";
-import { fail, ok, runAction, zodFail, type ActionResult } from "@/lib/action-result";
-import { CUSTOMER_STATUS_META, type CustomerStatus } from "@/lib/enums";
+import { ok, runAction, zodFail, type ActionResult } from "@/lib/action-result";
+import { forbiddenError } from "@/lib/api/errors";
+import { can, requirePermissionOrThrow } from "@/lib/auth/guards";
+import type { CustomerStatus } from "@/lib/enums";
+
 import {
-  setCustomerStatusSchema,
-  updateCustomerNotesSchema,
-  updateCustomerProfileSchema,
-  type SetCustomerStatusInput,
-  type UpdateCustomerNotesInput,
-  type UpdateCustomerProfileInput,
+  addressSchema,
+  BULK_OP_PERMISSION,
+  bulkRequestSchema,
+  customerFormSchema,
+  customerPatchSchema,
+  deleteCustomerSchema,
+  setStatusSchema,
+  type AddressInput,
+  type BulkRequest,
+  type CustomerFormInput,
 } from "./schemas";
+import {
+  bulkCustomers,
+  createAddress,
+  createCustomer,
+  deleteAddress,
+  requestCustomerPasswordReset,
+  setCustomerStatus,
+  softDeleteCustomer,
+  updateAddress,
+  updateCustomer,
+  type AddressRecord,
+  type BulkResult,
+} from "./service";
 
 /**
- * Inputs are typed for the caller AND re-validated here. The type is a
- * convenience for the sheet; the safeParse is the actual boundary, because a
- * Server Action is a public HTTP endpoint that anyone can post anything to.
+ * Server Actions for the customer list and profile. Each one is permission ->
+ * zod -> service -> revalidate -> ActionResult; the service owns the
+ * transaction and the audit row (blueprint section 7).
  */
 
-/** Empty text from a form means "cleared", which the column stores as NULL. */
-function orNull(value: string): string | null {
-  return value.length > 0 ? value : null;
+const LIST_PATH = "/admin/customers";
+
+function revalidate(id?: string): void {
+  revalidatePath(LIST_PATH);
+  if (id) revalidatePath(`${LIST_PATH}/${id}`);
 }
 
-function describe(customer: { fullName: string | null; email: string }): string {
-  return customer.fullName ?? customer.email;
-}
-
-// ---------------------------------------------------------------------------
-
-export async function setCustomerStatus(
-  input: SetCustomerStatusInput,
-): Promise<ActionResult<{ id: string; status: CustomerStatus }>> {
-  const actor = await requireAdminOrThrow();
-
-  const parsed = setCustomerStatusSchema.safeParse(input);
-  if (!parsed.success) return zodFail(parsed.error);
-
+export async function createCustomerAction(input: CustomerFormInput): Promise<ActionResult<{ id: string }>> {
   return runAction(async () => {
-    const { id, status } = parsed.data;
+    const actor = await requirePermissionOrThrow("customers.create");
+    const parsed = customerFormSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
+    const customer = await createCustomer(parsed.data, actor);
+    revalidate(customer.id);
+    return ok({ id: customer.id }, `Created ${customer.fullName ?? customer.email}.`);
+  });
+}
 
-    const existing = await db.customer.findUnique({
-      where: { id },
-      select: { id: true, email: true, fullName: true, status: true },
-    });
-    if (!existing) return fail("That customer record no longer exists.");
+export async function updateCustomerAction(id: string, input: Partial<CustomerFormInput>): Promise<ActionResult<{ id: string }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("customers.edit");
+    const parsed = customerPatchSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
+    await updateCustomer(id, parsed.data, actor);
+    revalidate(id);
+    return ok({ id }, "Profile saved.");
+  });
+}
 
-    if (existing.status === status) {
-      return ok(
-        { id, status },
-        `Already ${CUSTOMER_STATUS_META[status].label.toLowerCase()}.`,
-      );
-    }
+export async function setCustomerStatusAction(id: string, status: CustomerStatus, reason?: string): Promise<ActionResult<{ status: string }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("customers.block");
+    const parsed = setStatusSchema.safeParse({ status, reason });
+    if (!parsed.success) return zodFail(parsed.error);
+    const customer = await setCustomerStatus(id, parsed.data.status, actor, { reason: parsed.data.reason });
+    revalidate(id);
+    return ok({ status: customer.status }, status === "BLOCKED" ? "Customer blocked and signed out everywhere." : "Customer unblocked.");
+  });
+}
 
-    await db.customer.update({ where: { id }, data: { status } });
-
-    await writeAudit({
-      actor,
-      action: status === "BLOCKED" ? "customer.block" : "customer.unblock",
-      entityType: "Customer",
-      entityId: id,
-      summary: `${status === "BLOCKED" ? "Blocked" : "Unblocked"} ${describe(existing)}`,
-      diff: diffOf({ status: existing.status }, { status }),
-    });
-
-    revalidatePath("/customers");
-
+export async function sendPasswordResetAction(id: string): Promise<ActionResult<{ expiresAt: string; emailQueued: boolean }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("customers.reset_password");
+    const result = await requestCustomerPasswordReset(id, actor);
+    revalidate(id);
     return ok(
-      { id, status },
-      status === "BLOCKED"
-        ? "Customer blocked. This is an admin-side flag only."
-        : "Customer unblocked.",
+      { expiresAt: result.expiresAt.toISOString(), emailQueued: result.emailQueued },
+      result.emailQueued ? "Password reset link emailed." : "Reset link created, but no email was queued - check the customer_password_reset template.",
     );
   });
 }
 
-// ---------------------------------------------------------------------------
-
-export async function updateCustomerNotes(
-  input: UpdateCustomerNotesInput,
-): Promise<ActionResult<{ id: string }>> {
-  const actor = await requireAdminOrThrow();
-
-  const parsed = updateCustomerNotesSchema.safeParse(input);
-  if (!parsed.success) return zodFail(parsed.error);
-
+export async function deleteCustomerAction(id: string, reason?: string): Promise<ActionResult<{ id: string }>> {
   return runAction(async () => {
-    const { id, notes } = parsed.data;
-
-    const existing = await db.customer.findUnique({
-      where: { id },
-      select: { id: true, email: true, fullName: true, notes: true },
-    });
-    if (!existing) return fail("That customer record no longer exists.");
-
-    const next = orNull(notes);
-    if ((existing.notes ?? null) === next) {
-      return ok({ id }, "No change to save.");
-    }
-
-    await db.customer.update({ where: { id }, data: { notes: next } });
-
-    await writeAudit({
-      actor,
-      action: "customer.notes_update",
-      entityType: "Customer",
-      entityId: id,
-      summary: `Updated internal notes for ${describe(existing)}`,
-      // The note bodies themselves go into the diff so the audit trail shows
-      // what an operator actually wrote, not just that they wrote something.
-      diff: diffOf({ notes: existing.notes }, { notes: next }),
-    });
-
-    revalidatePath("/customers");
-
-    return ok({ id }, "Notes saved.");
+    const actor = await requirePermissionOrThrow("customers.delete");
+    const parsed = deleteCustomerSchema.safeParse({ reason });
+    if (!parsed.success) return zodFail(parsed.error);
+    await softDeleteCustomer(id, actor, { reason: parsed.data.reason });
+    revalidate(id);
+    return ok({ id }, "Customer deleted. Orders keep their history.");
   });
 }
 
 // ---------------------------------------------------------------------------
+// Addresses
+// ---------------------------------------------------------------------------
 
-export async function updateCustomerProfile(
-  input: UpdateCustomerProfileInput,
-): Promise<ActionResult<{ id: string }>> {
-  const actor = await requireAdminOrThrow();
-
-  const parsed = updateCustomerProfileSchema.safeParse(input);
-  if (!parsed.success) return zodFail(parsed.error);
-
+export async function saveAddressAction(customerId: string, addressId: string | null, input: AddressInput): Promise<ActionResult<AddressRecord>> {
   return runAction(async () => {
-    const { id, fullName, phone, email } = parsed.data;
+    const actor = await requirePermissionOrThrow("customers.edit");
+    const parsed = addressSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
+    const address = addressId ? await updateAddress(customerId, addressId, parsed.data, actor) : await createAddress(customerId, parsed.data, actor);
+    revalidate(customerId);
+    return ok(address, addressId ? "Address updated." : "Address added.");
+  });
+}
 
-    const existing = await db.customer.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        phone: true,
-      },
-    });
-    if (!existing) return fail("That customer record no longer exists.");
+export async function setDefaultAddressAction(customerId: string, addressId: string): Promise<ActionResult<{ id: string }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("customers.edit");
+    await updateAddress(customerId, addressId, { isDefault: true }, actor);
+    revalidate(customerId);
+    return ok({ id: addressId }, "Default address updated.");
+  });
+}
 
-    // Checked up front so the operator gets the error on the email field
-    // rather than the generic unique-constraint sentence. runAction still
-    // catches P2002 if two admins save the same address at the same moment.
-    if (email !== existing.email) {
-      const clash = await db.customer.findFirst({
-        where: { email, NOT: { id } },
-        select: { id: true },
-      });
-      if (clash) {
-        return fail("Another customer already uses that email address.", {
-          email: "This email belongs to a different customer record.",
-        });
-      }
-    }
+export async function deleteAddressAction(customerId: string, addressId: string): Promise<ActionResult<{ id: string }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("customers.edit");
+    await deleteAddress(customerId, addressId, actor);
+    revalidate(customerId);
+    return ok({ id: addressId }, "Address removed.");
+  });
+}
 
-    const before = {
-      fullName: existing.fullName,
-      phone: existing.phone,
-      email: existing.email,
-    };
-    const after = {
-      fullName: orNull(fullName),
-      phone: orNull(phone),
-      email,
-    };
+// ---------------------------------------------------------------------------
+// Bulk
+// ---------------------------------------------------------------------------
 
-    const diff = diffOf(before, after);
-    if (!diff) return ok({ id }, "No change to save.");
-
-    await db.customer.update({ where: { id }, data: after });
-
-    await writeAudit({
-      actor,
-      action: "customer.profile_update",
-      entityType: "Customer",
-      entityId: id,
-      summary: `Updated contact details for ${describe(existing)}`,
-      diff,
-    });
-
-    revalidatePath("/customers");
-
-    return ok({ id }, "Contact details saved.");
+export async function bulkCustomersAction(input: BulkRequest): Promise<ActionResult<BulkResult>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("customers.view");
+    const parsed = bulkRequestSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
+    if (!can(actor, BULK_OP_PERMISSION[parsed.data.op])) throw forbiddenError(`Requires ${BULK_OP_PERMISSION[parsed.data.op]}.`);
+    const result = await bulkCustomers(parsed.data, actor);
+    revalidate();
+    return ok(result, result.summary);
   });
 }

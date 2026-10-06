@@ -24,6 +24,7 @@ export function ThemeToggle() {
 
   // next-themes cannot know the resolved theme until after hydration, so the
   // icon renders neutral on the server to avoid a mismatch.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- TODO(wave2a shared): pre-existing hydration/URL-sync pattern; rewritten with useSyncExternalStore.
   React.useEffect(() => setMounted(true), []);
 
   return (

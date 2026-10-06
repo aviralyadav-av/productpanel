@@ -18,10 +18,10 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Niya Admin",
-    template: "%s · Niya Admin",
+    default: "DIY Baazar Admin",
+    template: "%s · DIY Baazar Admin",
   },
-  description: "Operations panel for the Niya Bags storefront.",
+  description: "Operations panel for the DIY Baazar marketplace.",
   // An admin panel must never be indexed, on any hostname.
   robots: { index: false, follow: false, nocache: true },
 };

@@ -1,38 +1,28 @@
-import { db } from "@/lib/db";
-import { toPublicPage } from "@/lib/serializers/public";
-import { notFoundJson, publicJson } from "../../_lib/response";
+import { notFound } from "@/lib/api/errors";
+import { handleOptions, privateJson, publicCachedJson, withPublicApi } from "@/lib/api/public";
+import { getPageCached } from "@/features/storefront/cached";
+import { findPageIdBySlug, getPage } from "@/features/storefront/queries/pages";
+import { assertPreviewAllowed, previewTokenOf } from "@/features/storefront/respond";
 
 /**
- * GET /api/v1/pages/:slug
- *
- * Replaces getFooterPage(slug), which returns footerPagesData[slug] || null for
- * about, our-story, contact, shipping-returns, size-guide, faq, privacy-policy
- * and terms-of-use.
- *
- * The FAQ page is special: its questions were imported as first-class Faq rows
- * so they can be reordered and toggled independently, and they are stitched
- * back into the `faqs` key here because FAQPage.jsx reads `data.faqs`.
+ * GET /api/v1/pages/:slug - a PUBLISHED CMS page with sanitised HTML
+ * (blueprint §14.E5, D12). `?preview=<token>` for the `page` entity shows a
+ * draft, uncached (E6).
  */
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ slug: string }> },
-) {
-  const { slug } = await params;
+export const GET = withPublicApi<{ slug: string }>(
+  async ({ req, params, searchParams }) => {
+    const token = previewTokenOf(searchParams);
+    if (token) {
+      assertPreviewAllowed(token, "page", await findPageIdBySlug(params.slug), "Page");
+      const draft = await getPage(params.slug, { preview: true });
+      if (!draft) throw notFound("Page");
+      return privateJson(draft, { req });
+    }
+    const page = await getPageCached(params.slug);
+    if (!page) throw notFound("Page");
+    return publicCachedJson(page);
+  },
+  { cached: true },
+);
 
-  const page = await db.cmsPage.findFirst({
-    where: { slug, status: "PUBLISHED" },
-  });
-
-  if (!page) return notFoundJson("Page");
-
-  const faqs =
-    slug === "faq"
-      ? await db.faq.findMany({
-          where: { enabled: true },
-          orderBy: { position: "asc" },
-          select: { question: true, answer: true },
-        })
-      : [];
-
-  return publicJson(toPublicPage(page, faqs));
-}
+export const OPTIONS = handleOptions;

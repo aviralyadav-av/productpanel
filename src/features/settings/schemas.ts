@@ -1,190 +1,200 @@
+/**
+ * Client-safe vocabulary for /admin/settings (blueprint §14.E2, D4, D14).
+ *
+ * The tab strip, the generated form and the REST handlers all read the same
+ * registry (src/lib/settings-keys.ts), so a key added there appears in the UI
+ * without touching this module. What lives here is only what the registry
+ * cannot know: which tab a key needs an extra permission for, which keys are
+ * media ids, and the zod shapes for the two write endpoints.
+ */
 import { z } from "zod";
 
-import { paiseToRupees, rupeesToPaise } from "@/lib/money";
+import {
+  MARKETPLACE_CHARGE_CONDITIONS,
+  MARKETPLACE_CHARGE_TYPES,
+  PAYMENT_PROVIDERS,
+  paymentProviderModeSchema,
+  type SettingType,
+} from "@/lib/enums";
+import { SETTING_GROUPS, type SettingGroup } from "@/lib/settings-keys";
+import { one, type SearchParams } from "@/lib/list-params";
+
+/** The Payments tab is not a Setting group: it edits PaymentProviderConfig rows. */
+export const PAYMENTS_TAB = "payments";
+export type SettingsTab = SettingGroup | typeof PAYMENTS_TAB;
+
+export const SETTINGS_TABS: readonly SettingsTab[] = [
+  ...(Object.keys(SETTING_GROUPS) as SettingGroup[]),
+  PAYMENTS_TAB,
+];
+
+export function resolveSettingsTab(raw: string | undefined): SettingsTab {
+  return (SETTINGS_TABS as readonly string[]).includes(raw ?? "")
+    ? (raw as SettingsTab)
+    : "general";
+}
+
+export function parseSettingsTab(params: SearchParams): SettingsTab {
+  return resolveSettingsTab(one(params, "tab"));
+}
 
 /**
- * Setting is a typed key/value registry: its `type` decides which control renders
- * and how the submitted string is validated on the way back in. The seeder
- * owns the rows, their labels and their help text - this file only describes
- * how to edit them safely.
+ * D14: `settings.manage` is not enough for money rails or session policy -
+ * those two tabs need a super-admin-only code on top.
  */
+export function tabPermission(tab: SettingsTab): string {
+  if (tab === PAYMENTS_TAB) return "settings.manage_payments";
+  if (tab === "security") return "settings.manage_security";
+  return "settings.manage";
+}
 
-export const SETTING_GROUPS = [
-  "general",
-  "shipping",
-  "inventory",
-  "alerts",
-  "seo",
-  "social",
-] as const;
-export type SettingGroup = (typeof SETTING_GROUPS)[number];
-
-/**
- * `system` holds demo.ordersSeeded, which the seeder writes and the dashboard
- * reads to decide whether to warn that sample orders are present. Letting an
- * operator flip it by hand would only make the dashboard lie, so the group is
- * never rendered or accepted.
- */
-export const HIDDEN_SETTING_GROUPS = new Set(["system"]);
-
-export const SETTING_TYPES = [
-  "string",
-  "number",
-  "boolean",
-  "money",
-  "json",
-] as const;
-export type SettingType = (typeof SETTING_TYPES)[number];
-
-export const SETTING_GROUP_META: Record<
-  string,
-  { label: string; description: string }
-> = {
-  general: {
-    label: "General",
-    description:
-      "Store identity and locale. The sidebar reads the store name from here.",
-  },
-  shipping: {
-    label: "Shipping",
-    description:
-      "The public order endpoint computes shipping from these two values. The storefront still applies its own hardcoded rule.",
-  },
-  inventory: {
-    label: "Inventory",
-    description: "Defaults applied when a variant has no threshold of its own.",
-  },
-  alerts: {
-    label: "Alerts",
-    description:
-      "Thresholds behind the dashboard's Needs attention panel. These take effect immediately.",
-  },
-  seo: {
-    label: "SEO",
-    description:
-      "Fallback meta title and description for pages that set none of their own.",
-  },
-  social: {
-    label: "Social",
-    description: "Profile links. The storefront footer does not read them yet.",
-  },
+export const TAB_LABELS: Record<SettingsTab, string> = {
+  ...(Object.fromEntries(
+    Object.entries(SETTING_GROUPS).map(([group, meta]) => [group, meta.label]),
+  ) as Record<SettingGroup, string>),
+  [PAYMENTS_TAB]: "Payments",
 };
 
-export function settingGroupLabel(group: string): string {
-  return (
-    SETTING_GROUP_META[group]?.label ??
-    group.charAt(0).toUpperCase() + group.slice(1)
-  );
+export const TAB_DESCRIPTIONS: Record<SettingsTab, string> = {
+  ...(Object.fromEntries(
+    Object.entries(SETTING_GROUPS).map(([group, meta]) => [group, meta.description]),
+  ) as Record<SettingGroup, string>),
+  [PAYMENTS_TAB]: "Gateways, credentials and the webhook URLs each provider must call.",
+};
+
+/** Keys whose value is a MediaAsset id, rendered with the media picker. */
+export const MEDIA_SETTING_KEYS: readonly string[] = [
+  "store.logo_media_id",
+  "store.favicon_media_id",
+  "seo.og_image_media_id",
+];
+
+export function isMediaSettingKey(key: string): boolean {
+  return MEDIA_SETTING_KEYS.includes(key);
 }
 
-// ---------------------------------------------------------------------------
-// Values
-//
-// Everything in this table is stored as a string, including money and numbers.
-// The form always holds the DISPLAY form (rupees for money, "true"/"false" for
-// booleans) and the action converts back, so the two directions live side by
-// side and cannot drift apart.
-// ---------------------------------------------------------------------------
-
-export function settingDisplayValue(type: string, stored: string): string {
-  if (type === "money") {
-    const paise = Number(stored);
-    return Number.isFinite(paise) ? String(paiseToRupees(paise)) : "";
-  }
-  return stored;
-}
-
-export type CoercedValue =
-  | { ok: true; value: string }
-  | { ok: false; message: string };
-
-export function coerceSettingValue(type: string, raw: string): CoercedValue {
-  const trimmed = raw.trim();
-
-  switch (type) {
-    case "boolean":
-      return trimmed === "true" || trimmed === "false"
-        ? { ok: true, value: trimmed }
-        : { ok: false, message: "Must be on or off." };
-
-    case "number": {
-      if (trimmed === "") return { ok: false, message: "Enter a number." };
-      const value = Number(trimmed);
-      if (!Number.isFinite(value)) return { ok: false, message: "Enter a number." };
-      if (!Number.isInteger(value))
-        return { ok: false, message: "Whole numbers only." };
-      if (value < 0) return { ok: false, message: "Cannot be negative." };
-      return { ok: true, value: String(value) };
-    }
-
-    case "money": {
-      if (trimmed === "")
-        return { ok: false, message: "Enter an amount in rupees." };
-      const rupees = Number(trimmed);
-      if (!Number.isFinite(rupees) || rupees < 0)
-        return { ok: false, message: "Enter an amount in rupees." };
-      // Stored in paise, typed in rupees. One conversion, in one place.
-      return { ok: true, value: String(rupeesToPaise(rupees)) };
-    }
-
-    case "json":
-      return { ok: false, message: "JSON settings are read-only here." };
-
-    default:
-      if (trimmed.length > 500)
-        return { ok: false, message: "Keep this under 500 characters." };
-      return { ok: true, value: trimmed };
-  }
-}
+/** Long-form text keys that deserve a textarea rather than a single line. */
+export const MULTILINE_SETTING_KEYS: readonly string[] = [
+  "store.address",
+  "seo.meta_description",
+  "seo.robots_txt",
+  "storefront.cors_origins",
+];
 
 // ---------------------------------------------------------------------------
-// Action inputs
+// View models (dates are strings; no Prisma types cross into the client)
+// ---------------------------------------------------------------------------
+
+export type SecretState = { isSet: boolean; last4: string | null };
+
+export type SettingFieldView = {
+  key: string;
+  type: SettingType;
+  label: string;
+  helpText: string;
+  isPublic: boolean;
+  /** The editable value. Secrets are always "" - the stored value never leaves the server (D4). */
+  value: string;
+  secret: SecretState | null;
+  /** Hydrated preview for MEDIA_SETTING_KEYS. */
+  media: { id: string; url: string; alt: string | null; filename: string } | null;
+  updatedAt: string | null;
+};
+
+export type SettingsGroupView = {
+  group: SettingGroup;
+  label: string;
+  description: string;
+  fields: SettingFieldView[];
+};
+
+export type ProviderCredentialView = { key: string; isSet: boolean; last4: string | null };
+
+export type PaymentProviderView = {
+  provider: string;
+  displayName: string;
+  isEnabled: boolean;
+  mode: "TEST" | "LIVE";
+  position: number;
+  supportedMethods: string[];
+  settings: Record<string, unknown>;
+  credentials: ProviderCredentialView[];
+  implemented: boolean;
+  webhookUrl: string;
+};
+
+// ---------------------------------------------------------------------------
+// Write inputs
 // ---------------------------------------------------------------------------
 
 /**
- * `group` is a free string rather than the enum above: a group added to the
- * registry later still renders, and refusing to save it would be worse than
- * accepting it. The action rejects hidden groups explicitly.
+ * `values` is key -> raw string, exactly as the generated form holds it. The
+ * service validates each one against its definition, so this schema only has
+ * to stop absurd payloads.
  */
 export const updateSettingsSchema = z.object({
-  group: z.string().min(1).max(40),
-  values: z.record(z.string().min(1).max(120), z.string().max(2000)),
+  values: z.record(z.string().min(1).max(120), z.string().max(20_000)),
 });
-export type UpdateSettingsInput = z.infer<typeof updateSettingsSchema>;
+export type UpdateSettingsInput = z.input<typeof updateSettingsSchema>;
+export type UpdateSettingsValues = z.output<typeof updateSettingsSchema>;
 
-export const updateAdminProfileSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(2, { message: "Enter your name." })
-    .max(80, { message: "That name is too long." }),
-  email: z.email({ message: "Enter a valid email address." }).max(160),
-  /** Only required when the email actually changes - checked in the action. */
-  currentPassword: z.string().max(200).optional(),
+export const chargeRuleSchema = z
+  .object({
+    code: z
+      .string()
+      .trim()
+      .min(1, "A code is required.")
+      .max(40)
+      .regex(/^[A-Za-z0-9_]+$/, "Letters, digits and underscores only."),
+    label: z.string().trim().min(1, "A label is required.").max(80),
+    type: z.enum(MARKETPLACE_CHARGE_TYPES),
+    valueBps: z.number().int().min(0).max(100_000).nullable().default(null),
+    valuePaise: z.number().int().min(0).nullable().default(null),
+    appliesWhen: z.enum(MARKETPLACE_CHARGE_CONDITIONS).default("ALWAYS"),
+  })
+  .superRefine((value, ctx) => {
+    if (value.type === "PERCENT_OF_GROSS" && value.valueBps === null) {
+      ctx.addIssue({ code: "custom", path: ["valueBps"], message: "Enter a percentage." });
+    }
+    if (value.type !== "PERCENT_OF_GROSS" && value.valuePaise === null) {
+      ctx.addIssue({ code: "custom", path: ["valuePaise"], message: "Enter an amount." });
+    }
+  });
+export type ChargeRuleValues = z.output<typeof chargeRuleSchema>;
+
+/** The stored shape of marketplace.charges (B3): only the used value key survives. */
+export function chargeRuleToSetting(row: ChargeRuleValues): Record<string, unknown> {
+  return {
+    code: row.code,
+    label: row.label,
+    type: row.type,
+    appliesWhen: row.appliesWhen,
+    ...(row.type === "PERCENT_OF_GROSS"
+      ? { valueBps: row.valueBps ?? 0 }
+      : { valuePaise: row.valuePaise ?? 0 }),
+  };
+}
+
+export const saveProviderSchema = z.object({
+  provider: z.enum(PAYMENT_PROVIDERS),
+  isEnabled: z.boolean(),
+  mode: paymentProviderModeSchema,
+  displayName: z.string().trim().min(1).max(60),
+  position: z.number().int().min(0).max(999).default(0),
+  supportedMethods: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
+  /** Blank/absent = leave the stored secret alone (D4); null = clear it. */
+  credentials: z.record(z.string().min(1).max(60), z.string().max(500).nullable()).default({}),
+  settings: z.record(z.string().min(1).max(60), z.unknown()).default({}),
 });
-export type UpdateAdminProfileInput = z.infer<typeof updateAdminProfileSchema>;
+export type SaveProviderInput = z.input<typeof saveProviderSchema>;
+export type SaveProviderValues = z.output<typeof saveProviderSchema>;
 
-/**
- * Ten, not eight. This account can edit every price and read every customer
- * address in the store, and the lockout in src/lib/auth/index.ts only slows an
- * online guess - it does nothing for an offline one.
- */
-export const MIN_PASSWORD_LENGTH = 10;
-
-export const changePasswordSchema = z.object({
-  currentPassword: z
-    .string()
-    .min(1, { message: "Enter your current password." })
-    .max(200),
-  newPassword: z
-    .string()
-    .min(MIN_PASSWORD_LENGTH, {
-      message: `Use at least ${MIN_PASSWORD_LENGTH} characters.`,
-    })
-    .max(200),
-  confirmPassword: z
-    .string()
-    .min(1, { message: "Repeat the new password." })
-    .max(200),
+/** The email tab's two buttons: test the connection, or send a real message. */
+export const emailTestSchema = z.object({
+  mode: z.enum(["connection", "send"]),
+  to: z.string().trim().max(160).optional(),
+  /** Unsaved form values, so the buttons test what is on screen (blank = use saved). */
+  values: z.record(z.string().min(1).max(120), z.string().max(2000)).default({}),
 });
-export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type EmailTestInput = z.input<typeof emailTestSchema>;
+export type EmailTestValues = z.output<typeof emailTestSchema>;

@@ -12,6 +12,13 @@ import { cn } from "cn";
  *   - numbers are right-aligned and tabular so digits line up between rows
  *   - the header is sticky, because operators scroll long lists
  *   - horizontal overflow scrolls inside the table, never the page
+ *
+ * Client-side companions live in their own files so this one stays
+ * server-compatible: SortableTh (sortable-th.tsx), RowCheckbox +
+ * useRowSelection (row-selection.tsx), BulkActionBar (bulk-action-bar.tsx),
+ * ColumnVisibilityMenu (column-visibility.tsx), TableSkeleton
+ * (table-skeleton.tsx), ResponsiveTable (responsive-table.tsx) and
+ * DataTableToolbar (data-table-toolbar.tsx).
  */
 
 export function DataTable({
@@ -41,15 +48,17 @@ export function Th({
   align = "left",
   className,
   width,
+  ...rest
 }: {
   children?: React.ReactNode;
   align?: "left" | "right" | "center";
   className?: string;
   width?: string;
-}) {
+} & Pick<React.ComponentProps<"th">, "aria-sort" | "colSpan">) {
   return (
     <th
       scope="col"
+      {...rest}
       style={width ? { width } : undefined}
       className={cn(
         "px-3 py-2 font-medium whitespace-nowrap first:pl-4 last:pr-4",
@@ -71,12 +80,25 @@ export function DataTableBody({ children }: { children: React.ReactNode }) {
 export function Tr({
   children,
   className,
+  selected = false,
+  ...rest
 }: {
   children: React.ReactNode;
   className?: string;
-}) {
+  /** Tints the row so a bulk selection is visible while scrolling. */
+  selected?: boolean;
+} & Pick<React.ComponentProps<"tr">, "onClick" | "aria-selected">) {
   return (
-    <tr className={cn("hover:bg-accent/40 transition-colors", className)}>
+    <tr
+      data-selected={selected ? "" : undefined}
+      aria-selected={rest["aria-selected"] ?? (selected || undefined)}
+      onClick={rest.onClick}
+      className={cn(
+        "hover:bg-accent/40 transition-colors",
+        selected && "bg-brand-muted/40 hover:bg-brand-muted/60",
+        className,
+      )}
+    >
       {children}
     </tr>
   );
@@ -87,14 +109,17 @@ export function Td({
   align = "left",
   numeric = false,
   className,
+  colSpan,
 }: {
   children?: React.ReactNode;
   align?: "left" | "right" | "center";
   numeric?: boolean;
   className?: string;
+  colSpan?: number;
 }) {
   return (
     <td
+      colSpan={colSpan}
       data-numeric={numeric ? "" : undefined}
       className={cn(
         "px-3 py-2 align-middle first:pl-4 last:pr-4",

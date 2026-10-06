@@ -1,20 +1,10 @@
-import { db } from "@/lib/db";
-import { toPublicFooter } from "@/lib/serializers/public";
-import { notFoundJson, publicJson } from "../_lib/response";
+import { handleOptions, publicCachedJson, withPublicApi } from "@/lib/api/public";
+import { getFooterCached } from "@/features/storefront/cached";
 
 /**
- * GET /api/v1/footer
- *
- * Replaces getFooter(). There is no commented-out axios version for this one in
- * the storefront - footerApi.js returns the static object directly - so this is
- * a net-new endpoint the cutover will need.
+ * GET /api/v1/footer - FooterConfig + the footer-1..3 menus + public
+ * `social.*` links in one call (blueprint §14.E1).
  */
-export async function GET() {
-  const config = await db.footerConfig.findUnique({
-    where: { id: "default" },
-  });
+export const GET = withPublicApi(async () => publicCachedJson(await getFooterCached()), { cached: true });
 
-  if (!config) return notFoundJson("Footer configuration");
-
-  return publicJson(toPublicFooter(config));
-}
+export const OPTIONS = handleOptions;

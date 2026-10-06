@@ -1,26 +1,41 @@
 "use client";
 
-import { LogOut, Settings, User } from "lucide-react";
+import * as React from "react";
 import Link from "next/link";
+import { KeyRound, LogOut, MonitorSmartphone, ShieldCheck, User } from "lucide-react";
 
+import { signOutAction } from "@/features/account/auth-actions";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { signOutAction } from "@/app/(auth)/actions";
+
+const LINKS = [
+  { href: "/admin/account", label: "My account", icon: User },
+  { href: "/admin/account/password", label: "Change password", icon: KeyRound },
+  { href: "/admin/account/security", label: "Two-factor security", icon: ShieldCheck },
+  { href: "/admin/account/sessions", label: "Signed-in devices", icon: MonitorSmartphone },
+] as const;
 
 export function UserMenu({
   name,
   email,
+  roleName,
+  twoFactorEnabled,
 }: {
   name: string | null;
   email: string;
+  roleName: string | null;
+  twoFactorEnabled: boolean;
 }) {
+  const signOutFormRef = React.useRef<HTMLFormElement>(null);
+
   const initials = (name ?? email)
     .split(/[\s@.]+/)
     .filter(Boolean)
@@ -41,37 +56,53 @@ export function UserMenu({
         </Button>
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuLabel className="font-normal">
           <p className="truncate text-sm font-medium">{name ?? "Admin"}</p>
           <p className="text-muted-foreground truncate text-xs">{email}</p>
+          <p className="text-muted-foreground mt-1 truncate text-[11px]">
+            {roleName ?? "No role"} · 2FA {twoFactorEnabled ? "on" : "off"}
+          </p>
         </DropdownMenuLabel>
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuItem asChild>
-          <Link href="/settings" className="gap-2">
-            <Settings className="size-4" />
-            Settings
-          </Link>
-        </DropdownMenuItem>
+        <DropdownMenuGroup>
+          {LINKS.map((link) => (
+            <DropdownMenuItem key={link.href} asChild>
+              <Link href={link.href} className="gap-2">
+                <link.icon className="size-4" />
+                {link.label}
+              </Link>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
 
         <DropdownMenuSeparator />
 
-        <form action={signOutAction}>
-          <button type="submit" className="w-full">
-            <DropdownMenuItem
-              asChild
-              className="text-destructive focus:text-destructive gap-2"
-            >
-              <span>
-                <LogOut className="size-4" />
-                Sign out
-              </span>
-            </DropdownMenuItem>
-          </button>
-        </form>
+        {/*
+          * Sign out submits a form that lives OUTSIDE the menu.
+          *
+          * Radix closes the menu when an item is selected, which unmounts
+          * everything inside DropdownMenuContent. A <form> rendered in here is
+          * torn out of the DOM in the same tick as the click, so the submit
+          * never reaches the server action and the operator stays signed in.
+          * Selecting the item calls requestSubmit() on a form that is not part
+          * of the menu, so the closing menu cannot cancel it.
+          */}
+        <DropdownMenuItem
+          className="text-destructive focus:text-destructive gap-2"
+          onSelect={(event) => {
+            event.preventDefault();
+            signOutFormRef.current?.requestSubmit();
+          }}
+        >
+          <LogOut className="size-4" />
+          Sign out
+        </DropdownMenuItem>
       </DropdownMenuContent>
+
+      <form ref={signOutFormRef} action={signOutAction} className="hidden" />
     </DropdownMenu>
   );
 }

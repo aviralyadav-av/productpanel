@@ -1,272 +1,115 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import bcrypt from "bcryptjs";
 
-import { db } from "@/lib/db";
-import { requireAdminOrThrow } from "@/lib/auth/guards";
-import { diffOf, writeAudit } from "@/lib/audit";
+import { ok, runAction, zodFail, type ActionResult } from "@/lib/action-result";
+import { requirePermissionOrThrow } from "@/lib/auth/guards";
+import { SETTING_DEFINITIONS } from "@/lib/settings-keys";
+
 import {
-  fail,
-  ok,
-  runAction,
-  zodFail,
-  type ActionResult,
-} from "@/lib/action-result";
-import {
-  HIDDEN_SETTING_GROUPS,
-  changePasswordSchema,
-  coerceSettingValue,
-  settingGroupLabel,
-  updateAdminProfileSchema,
+  emailTestSchema,
+  saveProviderSchema,
+  tabPermission,
   updateSettingsSchema,
+  type EmailTestInput,
+  type SaveProviderInput,
+  type SettingsTab,
+  type UpdateSettingsInput,
 } from "./schemas";
-
-/** bcrypt cost. Matches the seeder's hashes - do not lower it. */
-const BCRYPT_ROUNDS = 12;
-
-// ---------------------------------------------------------------------------
-// Store settings
-// ---------------------------------------------------------------------------
+import {
+  saveProvider,
+  sendTestEmail,
+  testSmtpSettings,
+  updateSettings,
+  type SmtpTestOutcome,
+} from "./service";
 
 /**
- * Saves one group of the Setting registry.
+ * Server Actions behind /admin/settings. Thin by design: permission -> zod ->
+ * service -> revalidate.
  *
- * The submitted values are display values (rupees for money, "true"/"false"
- * for booleans); each one is validated against the `type` recorded on its own
- * row rather than against anything the client sent, so a tampered payload
- * cannot smuggle a string into a money field.
+ * The permission is derived from the groups the submitted keys belong to, not
+ * from a tab name in the payload: a form that smuggled a `security.*` key into
+ * a Store save would otherwise bypass D14's super-admin-only codes.
  */
-export async function updateSettings(input: {
-  group: string;
-  values: Record<string, string>;
-}): Promise<ActionResult<{ updated: number }>> {
-  const actor = await requireAdminOrThrow();
+const PATH = "/admin/settings";
 
-  const parsed = updateSettingsSchema.safeParse(input);
-  if (!parsed.success) return zodFail(parsed.error);
+const GROUP_BY_KEY = new Map(SETTING_DEFINITIONS.map((item) => [item.key, item.group]));
 
-  const { group, values } = parsed.data;
+function permissionsForKeys(keys: readonly string[]): string[] {
+  const codes = new Set<string>(["settings.manage"]);
+  for (const key of keys) {
+    const group = GROUP_BY_KEY.get(key);
+    if (group) codes.add(tabPermission(group as SettingsTab));
+  }
+  return [...codes];
+}
 
-  return runAction<{ updated: number }>(async () => {
-    if (HIDDEN_SETTING_GROUPS.has(group)) {
-      return fail("That group is managed by the seeder and cannot be edited.");
+export async function updateSettingsAction(
+  input: UpdateSettingsInput,
+): Promise<ActionResult<{ changedKeys: string[] }>> {
+  return runAction(async () => {
+    const parsed = updateSettingsSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
+
+    // Every code the submitted keys imply, checked one by one.
+    const actor = await requirePermissionOrThrow("settings.manage");
+    for (const code of permissionsForKeys(Object.keys(parsed.data.values))) {
+      await requirePermissionOrThrow(code);
     }
 
-    const rows = await db.setting.findMany({ where: { group } });
-    if (rows.length === 0) {
-      return fail("That settings group no longer exists.");
-    }
-
-    const byKey = new Map(rows.map((row) => [row.key, row]));
-    const fieldErrors: Record<string, string> = {};
-    const writes: Array<{ key: string; value: string }> = [];
-    const before: Record<string, string> = {};
-    const after: Record<string, string> = {};
-
-    for (const [key, raw] of Object.entries(values)) {
-      const row = byKey.get(key);
-      if (!row) {
-        fieldErrors[key] = "This setting is not part of this group.";
-        continue;
-      }
-      if (row.type === "json") continue; // read-only in the UI
-
-      const coerced = coerceSettingValue(row.type, raw);
-      if (!coerced.ok) {
-        fieldErrors[key] = coerced.message;
-        continue;
-      }
-      if (coerced.value === row.value) continue;
-
-      writes.push({ key, value: coerced.value });
-      before[key] = row.value;
-      after[key] = coerced.value;
-    }
-
-    if (Object.keys(fieldErrors).length > 0) {
-      return fail("Please correct the highlighted fields.", fieldErrors);
-    }
-
-    if (writes.length === 0) {
-      return ok({ updated: 0 }, "Nothing to save - no values changed.");
-    }
-
-    await db.$transaction(
-      writes.map((write) =>
-        db.setting.update({
-          where: { key: write.key },
-          data: { value: write.value },
-        }),
-      ),
+    const result = await updateSettings(parsed.data.values, actor);
+    revalidatePath(PATH);
+    return ok(
+      { changedKeys: result.changedKeys },
+      result.changedKeys.length === 0
+        ? "Nothing to save - no value changed."
+        : `Saved ${result.changedKeys.length} setting${result.changedKeys.length === 1 ? "" : "s"}.`,
     );
-
-    const plural = writes.length === 1 ? "" : "s";
-
-    await writeAudit({
-      actor,
-      action: "settings.update",
-      entityType: "Setting",
-      entityId: group,
-      summary: `Updated ${writes.length} ${settingGroupLabel(group).toLowerCase()} setting${plural}`,
-      diff: diffOf(before, after),
-    });
-
-    revalidatePath("/settings");
-    // The sidebar reads store.name from this table on every dashboard render.
-    revalidatePath("/dashboard");
-
-    return ok({ updated: writes.length }, `Saved ${writes.length} change${plural}.`);
   });
 }
 
-// ---------------------------------------------------------------------------
-// Account
-// ---------------------------------------------------------------------------
+export async function saveProviderAction(
+  input: SaveProviderInput,
+): Promise<ActionResult<{ provider: string }>> {
+  return runAction(async () => {
+    const actor = await requirePermissionOrThrow("settings.manage_payments");
+    const parsed = saveProviderSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
 
-/**
- * Changing the sign-in email is a credential change, so it costs a password.
- * Changing the display name is not, so it does not.
- */
-export async function updateAdminProfile(input: {
-  name: string;
-  email: string;
-  currentPassword?: string;
-}): Promise<ActionResult<void>> {
-  const actor = await requireAdminOrThrow();
+    const config = await saveProvider(parsed.data, actor);
+    revalidatePath(PATH);
+    return ok({ provider: config.provider }, `${config.displayName} saved.`);
+  });
+}
 
-  const parsed = updateAdminProfileSchema.safeParse(input);
-  if (!parsed.success) return zodFail(parsed.error);
+export type EmailTestOutcome =
+  | { mode: "connection"; result: SmtpTestOutcome }
+  | { mode: "send"; queued: boolean; to: string; reason: string | null };
 
-  return runAction<void>(async () => {
-    const user = await db.user.findUnique({
-      where: { id: actor.id },
-      select: { id: true, name: true, email: true, passwordHash: true },
-    });
-    if (!user) return fail("Your account could not be loaded. Sign in again.");
+export async function testEmailAction(
+  input: EmailTestInput,
+): Promise<ActionResult<EmailTestOutcome>> {
+  return runAction<EmailTestOutcome>(async () => {
+    const actor = await requirePermissionOrThrow("settings.manage");
+    const parsed = emailTestSchema.safeParse(input);
+    if (!parsed.success) return zodFail(parsed.error);
 
-    const name = parsed.data.name.trim();
-    const email = parsed.data.email.trim().toLowerCase();
-    const emailChanged = email !== user.email;
-
-    if (emailChanged) {
-      if (!parsed.data.currentPassword) {
-        return fail("Enter your current password to change the sign-in email.", {
-          currentPassword: "Required to change the email.",
-        });
-      }
-
-      const valid = await bcrypt.compare(
-        parsed.data.currentPassword,
-        user.passwordHash,
+    if (parsed.data.mode === "connection") {
+      const result = await testSmtpSettings(parsed.data.values);
+      return ok<EmailTestOutcome>(
+        { mode: "connection", result },
+        result.ok ? "SMTP connection succeeded." : `SMTP test failed: ${result.error}`,
       );
-      if (!valid) {
-        return fail("That is not your current password.", {
-          currentPassword: "Incorrect password.",
-        });
-      }
-
-      const taken = await db.user.findUnique({ where: { email } });
-      if (taken) {
-        return fail("Another account already uses that email.", {
-          email: "Already in use.",
-        });
-      }
     }
 
-    if (!emailChanged && name === (user.name ?? "")) {
-      return ok(undefined, "Nothing to save - your profile is unchanged.");
-    }
-
-    await db.user.update({ where: { id: user.id }, data: { name, email } });
-
-    await writeAudit({
-      actor,
-      action: "account.update",
-      entityType: "User",
-      entityId: user.id,
-      summary: emailChanged
-        ? `Changed own sign-in email from ${user.email} to ${email}`
-        : "Updated own profile name",
-      diff: diffOf({ name: user.name, email: user.email }, { name, email }),
-    });
-
-    revalidatePath("/settings");
-
-    return ok(
-      undefined,
-      emailChanged
-        ? `Saved. Sign in with ${email} from now on.`
-        : "Profile saved.",
-    );
-  });
-}
-
-export async function changePassword(input: {
-  currentPassword: string;
-  newPassword: string;
-  confirmPassword: string;
-}): Promise<ActionResult<void>> {
-  const actor = await requireAdminOrThrow();
-
-  const parsed = changePasswordSchema.safeParse(input);
-  if (!parsed.success) return zodFail(parsed.error);
-
-  return runAction<void>(async () => {
-    if (parsed.data.newPassword !== parsed.data.confirmPassword) {
-      return fail("The two new passwords do not match.", {
-        confirmPassword: "These do not match.",
-      });
-    }
-
-    const user = await db.user.findUnique({
-      where: { id: actor.id },
-      select: { id: true, passwordHash: true },
-    });
-    if (!user) return fail("Your account could not be loaded. Sign in again.");
-
-    const valid = await bcrypt.compare(
-      parsed.data.currentPassword,
-      user.passwordHash,
-    );
-    if (!valid) {
-      return fail("That is not your current password.", {
-        currentPassword: "Incorrect password.",
-      });
-    }
-
-    const unchanged = await bcrypt.compare(
-      parsed.data.newPassword,
-      user.passwordHash,
-    );
-    if (unchanged) {
-      return fail("The new password is the same as the current one.", {
-        newPassword: "Choose a different password.",
-      });
-    }
-
-    await db.user.update({
-      where: { id: user.id },
-      data: {
-        passwordHash: await bcrypt.hash(parsed.data.newPassword, BCRYPT_ROUNDS),
-      },
-    });
-
-    // No diff, deliberately. writeAudit redacts password fields, but the safest
-    // password material is the kind that never reaches the logger at all.
-    await writeAudit({
-      actor,
-      action: "account.password_change",
-      entityType: "User",
-      entityId: user.id,
-      summary: "Changed own password",
-    });
-
-    revalidatePath("/settings");
-
-    return ok(
-      undefined,
-      "Password changed. Sessions are signed JWTs with no server-side store, so any other signed-in session stays valid until it expires.",
+    const to = parsed.data.to?.trim() || actor.email;
+    const sent = await sendTestEmail(to, actor);
+    return ok<EmailTestOutcome>(
+      { mode: "send", queued: sent.queued, to: sent.to, reason: sent.reason },
+      sent.queued
+        ? `Test email queued for ${sent.to}. The worker sends it within a minute.`
+        : `Test email was not queued (${sent.reason}).`,
     );
   });
 }

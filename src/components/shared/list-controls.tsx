@@ -2,12 +2,13 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import { cn } from "cn";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useQueryNav } from "@/hooks/use-query-nav";
 import { mergeQuery, type PageMeta } from "@/lib/list-params";
 
 /**
@@ -15,20 +16,6 @@ import { mergeQuery, type PageMeta } from "@/lib/list-params";
  * Component that re-renders from searchParams, so there is no client cache to
  * keep in sync and no stale-state class of bug.
  */
-
-function useQueryNav() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
-  return React.useCallback(
-    (changes: Record<string, string | number | null | undefined>) => {
-      const query = mergeQuery(searchParams.toString(), changes);
-      router.replace(`${pathname}${query}` as never, { scroll: false });
-    },
-    [router, pathname, searchParams],
-  );
-}
 
 export function SearchInput({
   placeholder = "Search…",
@@ -40,12 +27,13 @@ export function SearchInput({
   className?: string;
 }) {
   const searchParams = useSearchParams();
-  const navigate = useQueryNav();
+  const { navigate } = useQueryNav();
   const initial = searchParams.get(paramKey) ?? "";
   const [value, setValue] = React.useState(initial);
 
   // Keep in sync when the URL changes from elsewhere (back button, a filter
   // chip clearing search, a link from the dashboard).
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- TODO(wave2a shared): pre-existing hydration/URL-sync pattern; rewritten with useSyncExternalStore.
   React.useEffect(() => setValue(initial), [initial]);
 
   React.useEffect(() => {
@@ -108,10 +96,12 @@ export function FilterTabs({
   }));
 
   return (
+    // Sized to its content on a desk; on a narrow screen it scrolls sideways
+    // inside its own box instead of pushing the whole page wider.
     <div
       role="tablist"
       className={cn(
-        "bg-muted inline-flex items-center gap-0.5 rounded-lg p-0.5",
+        "bg-muted no-scrollbar inline-flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg p-0.5",
         className,
       )}
     >
@@ -123,7 +113,7 @@ export function FilterTabs({
           aria-selected={item.isActive}
           scroll={false}
           className={cn(
-            "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors",
+            "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors",
             item.isActive
               ? "bg-background text-foreground shadow-xs"
               : "text-muted-foreground hover:text-foreground",

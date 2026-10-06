@@ -221,6 +221,36 @@
     scrollbar-color: var(--border) transparent;
   }
 
+  /* No scrollbar at all - for strips that scroll sideways under a finger or a
+     wheel (filter tabs, section nav, the command list). Content still scrolls. */
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* The sidebar's scroll container. Two things say "there is more":
+     edge shadows that appear only when content continues past the edge
+     (the background-attachment: local trick - the cover gradients scroll with
+     the content and hide the shadows at the ends), and a thin scrollbar that
+     shows on hover. Pure CSS, so no measuring, no state, no hydration flash. */
+  .sidebar-scroll {
+    --sidebar-shadow: color-mix(in oklch, var(--sidebar-foreground) 14%, transparent);
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    scrollbar-gutter: stable;
+    background:
+      linear-gradient(var(--sidebar) 40%, transparent) center top / 100% 28px no-repeat local,
+      linear-gradient(transparent, var(--sidebar) 60%) center bottom / 100% 28px no-repeat local,
+      radial-gradient(farthest-side at 50% 0, var(--sidebar-shadow), transparent) center top / 100% 12px no-repeat scroll,
+      radial-gradient(farthest-side at 50% 100%, var(--sidebar-shadow), transparent) center bottom / 100% 12px no-repeat scroll;
+  }
+  .sidebar-scroll:hover,
+  .sidebar-scroll:focus-within {
+    scrollbar-color: color-mix(in oklch, var(--sidebar-foreground) 28%, transparent) transparent;
+  }
+
   /* Section shell: borders over shadows, per the design system. */
   .surface {
     @apply rounded-lg border bg-card;
